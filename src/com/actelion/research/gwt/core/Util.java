@@ -5,6 +5,8 @@ import com.actelion.research.chem.prediction.ParameterizedStringList;
 import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.core.client.JsArray;
 
+import java.awt.Color;
+
 public class Util {
 	public static JavaScriptObject convertParameterizedStringList(ParameterizedStringList list) {
 		int size = list.getSize();
@@ -53,5 +55,25 @@ public class Util {
 		if (options.noStereoProblem) displayMode |= @com.actelion.research.chem.AbstractDepictor::cDModeNoStereoProblem;
 
 		return displayMode;
+	}-*/;
+
+	public native int getSVGTextSize(JavaScriptObject options) /*-{
+        return (options.textSize|0) || 10;
+    }-*/;
+
+	public native int getSVGLineWidth(JavaScriptObject options) /*-{
+        return (options.lineWidth|0) || 1;
+    }-*/;
+
+	public Color getSVGColor(JavaScriptObject options) {
+		return new Color(
+			getSVGColorComponent(options, "r"),
+			getSVGColorComponent(options, "g"),
+			getSVGColorComponent(options, "b")
+		);
+	}
+
+	private native int getSVGColorComponent(JavaScriptObject options, String type) /*-{
+		return options.color ? options.color[type]|0 : 0;
 	}-*/;
 }

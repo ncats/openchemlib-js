@@ -78,6 +78,9 @@ public class JSMolecule {
 	private String getSVG(int width, int height, String id, JavaScriptObject options) {
 		int mode = Util.getDisplayMode(options);
 		SVGDepictor d = new SVGDepictor(oclMolecule, mode, id);
+		d.setTextSize(Util.getSVGTextSize(options));
+		d.setLineWidth(Util.getSVGLineWidth(options));
+		d.setColor(Util.getSVGColor(options));
 		d.validateView(null, new Rectangle2D.Double(0, 0, width, height), AbstractDepictor.cModeInflateToMaxAVBL);
 		d.paint(null);
 		return d.toString();
