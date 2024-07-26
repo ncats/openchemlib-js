@@ -28,7 +28,8 @@
 * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
+ *
+ * @author Thomas Sander
 */
 
 package com.actelion.research.chem.conf;
@@ -38,10 +39,12 @@ import com.actelion.research.chem.StereoMolecule;
 import com.actelion.research.chem.conf.TorsionDBData;
 
 import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 
 public class BondLengthSet {
 	private static final String cBondDataFile = "bondLengthData.txt";
+	private static String sCustomBondDataFile = null;
 
 	private static boolean isInitialized = false;
 	private static int[] BOND_ID,BOND_COUNT;
@@ -77,6 +80,14 @@ public class BondLengthSet {
 				mBondStdDev[bond] = getBondStdDev(index);
 				}
 			}
+		}
+
+	/**
+	 * @param filePathAndName null (for default) or valid path & name to a custom bond length data file
+	 */
+	public static void setCustomDataFile(String filePathAndName) {
+		sCustomBondDataFile = filePathAndName;
+		isInitialized = false;
 		}
 
 	

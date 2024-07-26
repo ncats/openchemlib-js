@@ -1,42 +1,43 @@
 /*
-* Copyright (c) 1997 - 2016
-* Actelion Pharmaceuticals Ltd.
-* Gewerbestrasse 16
-* CH-4123 Allschwil, Switzerland
-*
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*
-* 1. Redistributions of source code must retain the above copyright notice, this
-*    list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
-*    names of its contributors may be used to endorse or promote products
-*    derived from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-*/
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
 
 package com.actelion.research.chem;
 
 public class AromaticityResolver {
 	ExtendedMolecule	mMol;
 	private boolean		mAllHydrogensAreExplicit;
-	private boolean[]	mIsDelocalizedBond;
+	private boolean[]	mIsDelocalizedAtom,mIsDelocalizedBond;
     private int         mAromaticAtoms,mAromaticBonds,mPiElectronsAdded;
 
     /**
@@ -100,13 +101,13 @@ public class AromaticityResolver {
 
 		mPiElectronsAdded = 0;
 
-		boolean[] isAromaticAtom = new boolean[mMol.getAtoms()];
+		mIsDelocalizedAtom = new boolean[mMol.getAtoms()];
 		for (int bond=0; bond<mMol.getBonds(); bond++) {
 			if (mIsDelocalizedBond[bond]) {
 				mAromaticBonds++;
 				for (int i=0; i<2; i++) {
-					if (!isAromaticAtom[mMol.getBondAtom(i, bond)]) {
-						isAromaticAtom[mMol.getBondAtom(i, bond)] = true;
+					if (!mIsDelocalizedAtom[mMol.getBondAtom(i, bond)]) {
+						mIsDelocalizedAtom[mMol.getBondAtom(i, bond)] = true;
 						mAromaticAtoms++;
 						}
 					}
@@ -118,7 +119,9 @@ public class AromaticityResolver {
 
 		mAllHydrogensAreExplicit = allHydrogensAreExplicit;
 
-        if (mMol.isFragment())	
+		protectFullValenceAtoms(mayChangeAtomCharges);
+
+        if (mMol.isFragment())
         	promoteDelocalizedChains();
 
 		// create small-ring set without aromaticity information
@@ -179,7 +182,14 @@ public class AromaticityResolver {
                 }
             }
 
-        return (mAromaticAtoms == mPiElectronsAdded);
+/*		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			if (mIsDelocalizedAtom[atom] && mMol.getImplicitHydrogens(atom) != 0) {
+				mMol.setAtomRadical(atom, Molecule.cAtomRadicalStateD);
+				mPiElectronsAdded++;
+				}
+			}*/
+
+		return (mAromaticAtoms == mPiElectronsAdded);
 		}
 
 
@@ -318,8 +328,23 @@ public class AromaticityResolver {
 		}
 
 
+	private void protectFullValenceAtoms(boolean mayChangeAtomCharges) {
+		for (int atom=0; atom<mMol.getAtoms(); atom++)
+			if (mIsDelocalizedAtom[atom]
+			 && mMol.getLowestFreeValence(atom) == 0
+			 && (!mayChangeAtomCharges
+			  || (mMol.getAtomicNo(atom) == 5 && mMol.getAtomCharge(atom) < 0)
+			  || (mMol.getAtomicNo(atom) == 6 || mMol.getAtomicNo(atom) == 14)
+			  || (mMol.isElectronegative(atom) && mMol.getAtomCharge(atom) > 0)))
+				protectAtom(atom);
+		}
+
+
 	private void protectAtom(int atom) {
-        mAromaticAtoms--;
+		if (mIsDelocalizedAtom[atom]) {
+			mIsDelocalizedAtom[atom] = false;
+			mAromaticAtoms--;
+			}
 		for (int i=0; i<mMol.getConnAtoms(atom); i++) {
 			int connBond = mMol.getConnBond(atom, i);
             if (mIsDelocalizedBond[connBond]) {
@@ -338,6 +363,7 @@ public class AromaticityResolver {
 
 		for (int i=0; i<2; i++) {
 			int bondAtom = mMol.getBondAtom(i, bond);
+			mIsDelocalizedAtom[bondAtom] = false;
 			for (int j=0; j<mMol.getConnAtoms(bondAtom); j++) {
 				int connBond = mMol.getConnBond(bondAtom, j);
                 if (mIsDelocalizedBond[connBond]) {
@@ -655,33 +681,23 @@ public class AromaticityResolver {
 	 */
 	private boolean checkAtomTypePi1(int atom, boolean correctCharge) {
 		int atomicNo = mMol.getAtomicNo(atom);
-		if ((atomicNo >=5 && atomicNo <= 8)
-				|| atomicNo == 15 || atomicNo == 16 || atomicNo == 33 || atomicNo == 34) {	// P,S,As,Se
-			int freeValence = mMol.getFreeValence(atom);
-			if (freeValence == 1 || freeValence == 2)	// we allow one more free valence, because the atom may have a missing charge
+		if ((atomicNo >= 5 && atomicNo <= 8)
+		 || atomicNo == 15 || atomicNo == 16 || atomicNo == 33 || atomicNo == 34 || atomicNo == 52) {	// P,S,As,Se,Te
+
+			int freeValence = mMol.getLowestFreeValence(atom);
+			if (freeValence != 0)
 				return true;
 
-			if (mMol.getAtomCharge(atom) == 0) {
-				if ((atomicNo == 15 || atomicNo == 33) && freeValence == 3) {
-					if (correctCharge)
-						mMol.setAtomCharge(atom, 1);
-					return true;
-					}
-				if ((atomicNo == 16 || atomicNo == 34) && freeValence == 4) {
-					if (correctCharge)
-						mMol.setAtomCharge(atom, 1);
-					return true;
-					}
-				if (atomicNo == 5 && freeValence == 0) {
-					if (correctCharge)
-						mMol.setAtomCharge(atom, -1);
-					return true;
-					}
-				if ((atomicNo == 7 || atomicNo == 8) && freeValence == 0) {
-					if (correctCharge)
-						mMol.setAtomCharge(atom, 1);
-					return true;
-					}
+			int charge = mMol.getAtomCharge(atom);
+			if (atomicNo == 5 && charge >= 0) {
+				if (correctCharge)
+					mMol.setAtomCharge(atom, charge-1);
+				return true;
+				}
+			if (atomicNo != 5 && charge <= 0) {
+				if (correctCharge)
+					mMol.setAtomCharge(atom, charge+1);
+				return true;
 				}
 			}
 
@@ -709,7 +725,7 @@ public class AromaticityResolver {
 			if (mMol.getConnAtoms(atom) == 3)
 				return 8;
 			}
-		else if (mMol.getAtomicNo(atom) == 16 || mMol.getAtomicNo(atom) == 34) {
+		else if (mMol.getAtomicNo(atom) == 16 || mMol.getAtomicNo(atom) == 34 || mMol.getAtomicNo(atom) == 52) {
 			if (mMol.getConnAtoms(atom) == 2)
 				return 12;
 			}

@@ -8,8 +8,11 @@ export {
   IDepictorOptions,
   Reaction,
   SDFileParser,
+  ISmilesParserOptions,
+  ISmilesParserParseMoleculeOptions,
+  SmilesParser,
   SSSearcher,
   SSSearcherWithIndex,
   Util,
-  version
+  version,
 } from './types';

@@ -1,39 +1,42 @@
 /*
-* Copyright (c) 1997 - 2016
-* Actelion Pharmaceuticals Ltd.
-* Gewerbestrasse 16
-* CH-4123 Allschwil, Switzerland
-*
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*
-* 1. Redistributions of source code must retain the above copyright notice, this
-*    list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
-*    names of its contributors may be used to endorse or promote products
-*    derived from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-*/
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
 
 package com.actelion.research.chem;
 
-import java.util.ArrayList;
+import com.actelion.research.chem.descriptor.AbstractDescriptorHandlerLongFP;
+
+import java.nio.charset.StandardCharsets;
 
 // TODO purge mMoleculeIndexInt,mFragmentIndexInt and related methods from this class. Long versions were introduced Aug 3, 2018
 
@@ -562,10 +565,18 @@ public class SSSearcherWithIndex {
 	private int[]				mMoleculeIndexInt,mFragmentIndexInt;
 	private long[]				mMoleculeIndexLong,mFragmentIndexLong;
 	private byte[]				mMoleculeIDCode,mFragmentIDCode;
+	private AbstractDescriptorHandlerLongFP<StereoMolecule> mDescriptorHandler;
 
 	public static int getNoOfKeys() {
         return cKeyIDCode.length;
 	   	}
+
+	public SSSearcherWithIndex(AbstractDescriptorHandlerLongFP<StereoMolecule> dh) {
+		mSSSearcher = new SSSearcher();
+		mDescriptorHandler = dh;
+		init();
+		}
+
 
 	public SSSearcherWithIndex() {
 		mSSSearcher = new SSSearcher();
@@ -598,7 +609,7 @@ public class SSSearcherWithIndex {
 
 	@Deprecated // Use long version of this method
 	public void setFragment(String idcode, int[] index) {
-	    setFragment(idcode.getBytes(), index);
+	    setFragment(idcode.getBytes(StandardCharsets.UTF_8), index);
 		}
 
 
@@ -631,7 +642,7 @@ public class SSSearcherWithIndex {
 
 	@Deprecated // Use long version of this method
 	public void setMolecule(String idcode, int[] index) {
-	    setMolecule(idcode.getBytes(), index);
+	    setMolecule(idcode.getBytes(StandardCharsets.UTF_8), index);
 		}
 
 
@@ -662,7 +673,7 @@ public class SSSearcherWithIndex {
 
 
 	public void setFragment(String idcode, long[] index) {
-		setFragment(idcode.getBytes(), index);
+		setFragment(idcode.getBytes(StandardCharsets.UTF_8), index);
 	}
 
 
@@ -692,7 +703,7 @@ public class SSSearcherWithIndex {
 
 
 	public void setMolecule(String idcode, long[] index) {
-		setMolecule(idcode.getBytes(), index);
+		setMolecule(idcode.getBytes(StandardCharsets.UTF_8), index);
 	}
 
 
@@ -711,12 +722,12 @@ public class SSSearcherWithIndex {
 
 
 	public int getFirstHittingLongIndexBlockNo() {
-		if (mMoleculeIndexInt == null) {
+		if (mMoleculeIndexLong != null) {
 			for (int i=0; i<mMoleculeIndexLong.length; i++)
 				if ((mFragmentIndexLong[i] & ~mMoleculeIndexLong[i]) != 0)
 					return i;
 			}
-		else {
+		else if (mMoleculeIndexInt != null) {
 			for (int i=0; i<mMoleculeIndexInt.length; i++)
 				if ((mFragmentIndexInt[i] & ~mMoleculeIndexInt[i]) != 0)
 					return i;
@@ -743,15 +754,18 @@ public class SSSearcherWithIndex {
 	 * @return whether the fragment fingerprint bits are all present in the molecule bits
 	 */
 	public boolean isFragmentIndexInMoleculeIndex() {
-		if (mMoleculeIndexInt == null) {
+		if (mMoleculeIndexLong != null) {
 			for (int i=0; i<mMoleculeIndexLong.length; i++)
 				if ((mFragmentIndexLong[i] & ~mMoleculeIndexLong[i]) != 0)
 					return false;
 			}
-		else {
+		else if (mMoleculeIndexInt != null) {
 			for (int i=0; i<mMoleculeIndexInt.length; i++)
 				if ((mFragmentIndexInt[i] & ~mMoleculeIndexInt[i]) != 0)
 					return false;
+			}
+		else {
+			return false;
 			}
 
 		return true;
@@ -783,15 +797,18 @@ public class SSSearcherWithIndex {
 
 
 	public boolean isFragmentInMolecule() {
-		if (mMoleculeIndexInt == null) {
+		if (mMoleculeIndexLong != null) {
 			for (int i=0; i<mMoleculeIndexLong.length; i++)
 				if ((mFragmentIndexLong[i] & ~mMoleculeIndexLong[i]) != 0)
 					return false;
 			}
-		else {
+		else if (mMoleculeIndexInt != null) {
 			for (int i=0; i<mMoleculeIndexInt.length; i++)
 				if ((mFragmentIndexInt[i] & ~mMoleculeIndexInt[i]) != 0)
 					return false;
+			}
+		else {
+			return false;
 			}
 
 		return isFragmentInMoleculeWithoutIndex();
@@ -799,15 +816,18 @@ public class SSSearcherWithIndex {
 
 
 	public int findFragmentInMolecule() {
-		if (mMoleculeIndexInt == null) {
+		if (mMoleculeIndexLong != null) {
 			for (int i=0; i<mMoleculeIndexLong.length; i++)
 				if ((mFragmentIndexLong[i] & ~mMoleculeIndexLong[i]) != 0)
 					return 0;
 			}
-		else {
+		else if (mMoleculeIndexInt != null) {
 			for (int i=0; i<mMoleculeIndexInt.length; i++)
 				if ((mFragmentIndexInt[i] & ~mMoleculeIndexInt[i]) != 0)
 					return 0;
+			}
+		else {
+			return 0;
 			}
 
 		if (mMolecule == null)
@@ -826,15 +846,18 @@ public class SSSearcherWithIndex {
 	    }
 
 	public int findFragmentInMolecule(int countMode, int matchMode, final boolean[] atomExcluded) {
-		if (mMoleculeIndexInt == null) {
+		if (mMoleculeIndexLong != null) {
 			for (int i=0; i<mMoleculeIndexLong.length; i++)
 				if ((mFragmentIndexLong[i] & ~mMoleculeIndexLong[i]) != 0)
 					return 0;
 			}
-		else {
+		else if (mMoleculeIndexInt != null) {
 			for (int i=0; i<mMoleculeIndexInt.length; i++)
 				if ((mFragmentIndexInt[i] & ~mMoleculeIndexInt[i]) != 0)
 					return 0;
+			}
+		else {
+			return 0;
 			}
 
 		if (mMolecule == null)
@@ -849,19 +872,13 @@ public class SSSearcherWithIndex {
 
 
 	/**
-	 * If the match count mode is one of cCountModeFirstMatch, cCountModeOverlapping,
-	 * cCountModeRigorous then this method returns an arraylist of all counted matches,
-	 * i.e. int arrays mapping fragment atoms to molecule atoms. Atoms being part of a
-	 * matched bridge bond are naturally not covered by the mapping.<br>
-	 * Note: If some query fragment atoms are marked as exclude group, then the respective
-	 * matchlist values are -1.
-	 * @return list of distinct counted matches.
+	 * @return the SSSearcher employed for the graph matching by this index accelerated SS-searcher
 	 */
-	public ArrayList<int[]> getMatchList() {
-		return mSSSearcher.getMatchList();
+	public SSSearcher getGraphMatcher() {
+		return mSSSearcher;
 		}
 
-
+	@Deprecated // switch to long version; this version does not support the AllFragmentIndex
 	public int[] createIndex(StereoMolecule mol) {
 		if (mol == null)
 			return null;
@@ -882,6 +899,9 @@ public class SSSearcherWithIndex {
 	public long[] createLongIndex(StereoMolecule mol) {
 		if (mol == null)
 			return null;
+
+		if (mDescriptorHandler != null)
+			return mDescriptorHandler.createDescriptor(mol);
 
 		long[] index = new long[(cKeyIDCode.length+63)/64];
 		mol = removeExcludeGroups(mol);
@@ -1035,7 +1055,7 @@ public class SSSearcherWithIndex {
 				}
 			}
 
-		return new String(bytes);
+		return new String(bytes, StandardCharsets.UTF_8);
 		}
 
 	
@@ -1069,4 +1089,8 @@ public class SSSearcherWithIndex {
 	    		}
 			}
 	    }
+
+	public void stop() {
+		mSSSearcher.stop();
+		}
 	}

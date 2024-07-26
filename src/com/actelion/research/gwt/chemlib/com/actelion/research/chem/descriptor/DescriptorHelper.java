@@ -33,9 +33,13 @@
 
 package com.actelion.research.chem.descriptor;
 
+import com.actelion.research.chem.IDCodeParser;
+import com.actelion.research.chem.Molecule;
+import com.actelion.research.chem.StereoMolecule;
+
 public class DescriptorHelper implements DescriptorConstants {
 	
-	public static final String TAG_SIMILARITY = "Similarity";
+	public static final String TAG_SIMILARITY = "Similarity ";
 	
     public static int getDescriptorType(String shortName) {
         DescriptorInfo descriptorInfo = getDescriptorInfo(unifyShortName(shortName));
@@ -91,6 +95,10 @@ public class DescriptorHelper implements DescriptorConstants {
 		return TAG_SIMILARITY + dh.getInfo().shortName;
 		}
 
+	public static String getTagDescriptorSimilarity(String shortName) {
+		return TAG_SIMILARITY + shortName;
+		}
+
 	public static String getTagDescriptorSimilarity(SimilarityCalculatorInfo info) {
 		return TAG_SIMILARITY + info.shortName;
 		}
@@ -98,4 +106,12 @@ public class DescriptorHelper implements DescriptorConstants {
 	public static String getTagDescriptorSimilarity(DescriptorInfo dh){
 		return TAG_SIMILARITY + dh.shortName;
 		}
+
+	public static<T> T create(DescriptorHandler<T, StereoMolecule> dh, String idcode){
+		IDCodeParser parser = new IDCodeParser();
+		StereoMolecule mol = parser.getCompactMolecule(idcode);
+		mol.ensureHelperArrays(Molecule.cHelperRings);
+		return dh.createDescriptor(mol);
 	}
+
+}

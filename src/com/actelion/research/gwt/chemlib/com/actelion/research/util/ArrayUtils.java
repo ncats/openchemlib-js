@@ -86,7 +86,7 @@ public class ArrayUtils {
 	 * @param list
 	 * @return an array of int
 	 */
-	public final static int[] toIntArray(List<Integer> list) {
+	public final static int[] toIntArray(Collection<Integer> list) {
 		int[] res = new int[list.size()];
 		int index = 0;
 		Iterator iter = list.iterator();
@@ -107,12 +107,43 @@ public class ArrayUtils {
 		return li;
 	}
 
+	public final static List<String> toList(String [] arr) {
+		List<String> li = new ArrayList<>(arr.length);
+		for (String t : arr) {
+			li.add(t);
+		}
+		return li;
+	}
+
+	public final static List<Integer> toList(int [] arr) {
+		List<Integer> li = new ArrayList<>(arr.length);
+		for (int t : arr) {
+			li.add(t);
+		}
+		return li;
+	}
+
+	public final static void toList(int [] arr, List<Integer> li) {
+		for (int t : arr) {
+			li.add(t);
+		}
+	}
 
 
 	public final static String[] toStringArray(List<String> list) {
 		String[] res = new String[list.size()];
 		int index = 0;
 		Iterator<String> iter = list.iterator();
+		while(iter.hasNext()) {
+			res[index++] = iter.next();
+		}
+		return res;
+	}
+
+	public final static byte [] toByteArray(List<Byte> li) {
+		byte[] res = new byte[li.size()];
+		int index = 0;
+		Iterator<Byte> iter = li.iterator();
 		while(iter.hasNext()) {
 			res[index++] = iter.next();
 		}
@@ -337,5 +368,35 @@ public class ArrayUtils {
 		for (int i = 0; i < a.length; i++) {
 			a[i]=v;
 		}
+	}
+
+	public final static boolean isOverlap(int[] a1, int[] a2) {
+		boolean ov = false;
+		all:
+		for (int v1 : a1) {
+			for (int v2 : a2) {
+				if(v1==v2){
+					ov=true;
+					break all;
+				}
+			}
+		}
+		return ov;
+	}
+
+	/**
+	 *
+	 * @param s string with single digits '123456789'.
+	 * @return
+	 */
+	public static int [] parseSingleDigitString(String s) {
+		if (s == null)
+			return null;
+		int[] arr = new int[s.length()];
+		for (int i = 0; i < s.length(); i++) {
+			int c = Integer.parseInt(Character.toString(s.charAt(i)));
+			arr[i] = c;
+		}
+		return arr;
 	}
 }

@@ -1,4 +1,7 @@
+'use strict';
+
 module.exports = function extendCore(exports) {
+  // eslint-disable-next-line strict
   'use strict';
 
   let ConformerGenerator = exports.ConformerGenerator;
@@ -16,7 +19,7 @@ module.exports = function extendCore(exports) {
     funcTol: 1e-6,
   };
   ForceFieldMMFF94.prototype.minimise = function minimise(options) {
-    options = Object.assign({}, defaultMinimiseOptions, options);
+    options = { ...defaultMinimiseOptions, ...options };
     return this._minimise(options.maxIts, options.gradTol, options.funcTol);
   };
 };

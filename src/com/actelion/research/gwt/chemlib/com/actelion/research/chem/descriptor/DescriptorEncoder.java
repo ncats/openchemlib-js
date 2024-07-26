@@ -33,6 +33,8 @@
 
 package com.actelion.research.chem.descriptor;
 
+import java.nio.charset.StandardCharsets;
+
 /**
  * DescriptorEncoder encodes int[] based descriptors
  * into byte arrays that may be used to instantiate Strings
@@ -43,11 +45,11 @@ public class DescriptorEncoder {
     private static final int BITS = 6;
     private static final int PAIR_BITS = 4;
 
-    // CODE Strings must contain highest ASCII character as the end
-    private static final byte[] sCode = "0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz".getBytes();
-    private static final byte[] sCodeMultipleMin = "!#$%&()*+,-./".getBytes();
-    private static final byte[] sCodeMultipleMax = ":;<=>?[]^{|}~".getBytes();
-    private static int[]  sDecode,sDecodeMultiple;
+    // CODE Strings must contain highest ASCII character at the end; unused characters: " ' \ `
+    private static final byte[] sCode = "0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] sCodeMultipleMin = "!#$%&()*+,-./".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] sCodeMultipleMax = ":;<=>?[]^{|}~".getBytes(StandardCharsets.UTF_8);
+    private static volatile int[] sDecode,sDecodeMultiple;
 
     private byte[]  mBytes;
     private int     mByteIndex,mAvailableBits,mTempData,mByteMask;
@@ -55,19 +57,21 @@ public class DescriptorEncoder {
 
     public DescriptorEncoder() {
     	if (sDecode == null) {
-    		synchronized(this) {
-		        int len = 1 << BITS;
-		        assert len <= sCode.length : "Error in encoding, not enough characters.";
-		
-		        sDecode = new int[sCode[sCode.length-1]+1];
-		        for (int i=0; i<sCode.length; i++)
-		            sDecode[sCode[i]] = i;
-		        sDecodeMultiple = new int[Math.max(sCodeMultipleMin[sCodeMultipleMin.length-1],
-		                                           sCodeMultipleMax[sCodeMultipleMax.length-1])+1];
-		        for (int i=0; i<sCodeMultipleMin.length; i++)
-		            sDecodeMultiple[sCodeMultipleMin[i]] = -i-2;
-		        for (int i=0; i<sCodeMultipleMax.length; i++)
-		            sDecodeMultiple[sCodeMultipleMax[i]] = i+2;
+    		synchronized(this.getClass()) {
+				if (sDecode == null) {
+			        int len = 1 << BITS;
+			        assert len <= sCode.length : "Error in encoding, not enough characters.";
+
+			        sDecode = new int[sCode[sCode.length-1]+1];
+			        for (int i=0; i<sCode.length; i++)
+			            sDecode[sCode[i]] = i;
+			        sDecodeMultiple = new int[Math.max(sCodeMultipleMin[sCodeMultipleMin.length-1],
+			                                           sCodeMultipleMax[sCodeMultipleMax.length-1])+1];
+			        for (int i=0; i<sCodeMultipleMin.length; i++)
+			            sDecodeMultiple[sCodeMultipleMin[i]] = -i-2;
+			        for (int i=0; i<sCodeMultipleMax.length; i++)
+			            sDecodeMultiple[sCodeMultipleMax[i]] = i+2;
+					}
     			}
     		}
         }
@@ -87,6 +91,67 @@ public class DescriptorEncoder {
 		}
 
 	/**
+	 * Encodes any int[][] containing positive values.
+	 * @param data not necessarily rectangular 2-dimensional array without null values
+	 * @return byte[] of encoded character sequence
+	 */
+	public byte[] encodeIntArray2D(int[][] data) {
+		int maxCount = data.length;
+		int maxValue = 0;
+		int valueCount = 0;
+		for (int i=0; i<data.length; i++) {
+			if (maxCount < data[i].length)
+				maxCount = data[i].length;
+			for (int j = 0; j<data[i].length; j++)
+				if (maxValue<data[i][j])
+					maxValue = data[i][j];
+			valueCount += data[i].length;
+			}
+		int countBits = getNeededBits(maxCount);
+		int valueBits = getNeededBits(maxValue);
+
+		encodeStart(10 + (1+data.length)*countBits + valueCount*valueBits);
+		encodeBits(countBits, 5);
+		encodeBits(valueBits, 5);
+		encodeBits(data.length, countBits);
+		for (int i=0; i<data.length; i++) {
+			encodeBits(data[i].length, countBits);
+			for (int j=0; j<data[i].length; j++)
+				encodeBits(data[i][j], valueBits);
+			}
+		encodeBitsEnd();
+		encodeDuplicateBytes();
+		return mBytes;
+	}
+
+	/**
+	 * Decodes a 2-dimensional int[][] with positive values.
+	 * @param bytes encoded character sequence
+	 * @return int[][] decoded 2-dimensional int array
+	 */
+	public int[][] decodeIntArray2D(byte[] bytes) {
+		if (bytes.length == 0)
+			return null;
+
+		bytes = decodeDuplicateBytes(bytes);
+		decodeStart(bytes);
+
+		int countBits = decodeBits(5);
+		int valueBits = decodeBits(5);
+		int outerSize = decodeBits(countBits);
+
+		int[][] data = new int[outerSize][];
+		for (int i=0; i<outerSize; i++) {
+			int innerSize = decodeBits(countBits);
+			data[i] = new int[innerSize];
+			for (int j=0; j<innerSize; j++)
+				data[i][j] = decodeBits(valueBits);
+			}
+
+		return data;
+		}
+
+	/**
 	 * Encodes a binary fingerprint stored as long[].
 	 * @param data binary fingerprint
 	 * @return byte[] of encoded character sequence
@@ -99,7 +164,7 @@ public class DescriptorEncoder {
 		encodeBitsEnd();
 		encodeDuplicateBytes();
 		return mBytes;
-	}
+		}
 
 	/**
      * Decodes a binary fingerprint from a String into an int[].
@@ -107,7 +172,7 @@ public class DescriptorEncoder {
      * @return int[] binary fingerprint
      */
 	public int[] decode(String s) {
-		return decode(s.getBytes());
+		return decode(s.getBytes(StandardCharsets.UTF_8));
 		}
 
     /**
@@ -133,8 +198,8 @@ public class DescriptorEncoder {
 	 * @return int[] binary fingerprint
 	 */
 	public long[] decodeLong(String s) {
-		return decodeLong(s.getBytes());
-	}
+		return decodeLong(s.getBytes(StandardCharsets.UTF_8));
+		}
 
 	/**
 	 * Decodes a binary fingerprint from a String into a long[].
@@ -175,7 +240,7 @@ public class DescriptorEncoder {
      * @return byte[] array with every byte representing a count value
      */
     public byte[] decodeCounts(String s) {
-        return decodeCounts(s.getBytes());
+        return decodeCounts(s.getBytes(StandardCharsets.UTF_8));
         }
 
     /**
@@ -238,7 +303,7 @@ public class DescriptorEncoder {
      * @return int[] decoded int array
      */
     public int[] decodeIntArray(String s) {
-    	return s == null ? null : decodeIntArray(s.getBytes());
+    	return s == null ? null : decodeIntArray(s.getBytes(StandardCharsets.UTF_8));
     	}
 
     /**
@@ -332,7 +397,7 @@ public class DescriptorEncoder {
      * @return
      */
     public int[][] decodePairs(String s) {
-    	return decodePairs(s.getBytes());
+    	return decodePairs(s.getBytes(StandardCharsets.UTF_8));
     	}
 
 	private int getNeededBits(int no) {

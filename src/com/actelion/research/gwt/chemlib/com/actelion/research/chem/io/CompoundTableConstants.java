@@ -33,6 +33,8 @@
 
 package com.actelion.research.chem.io;
 
+import java.awt.*;
+
 public interface CompoundTableConstants {
     String cColumnUnassignedItemText = "<Unassigned>";
     String cColumnUnassignedCode = "<none>";
@@ -50,23 +52,31 @@ public interface CompoundTableConstants {
     String cColumnType2DCoordinates = "idcoordinates2D";
     String cColumnType3DCoordinates = "idcoordinates3D";
     String cColumnTypeAtomColorInfo = "atomColorInfo";
+    String cColumnTypeFlagColors = "flagColors";
     String cColumnTypeReactionMapping = "atomMapping";
     String cColumnTypeReactionObjects = "reactionObjects";
+    String cColumnTypeNegRecImage = "negRecImg";
+    String cColumnTypeTransformation = "transformation";
         // in addition to these all DescriptorHandler.SHORT_NAMEs are valid column types
+
+    // Flag values are ORed values from (1:green, 2:yellow, 4:orange, 8:red, ...)
+    Color[] cFlagColor = { Color.GREEN, Color.YELLOW, Color.ORANGE, Color.RED, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.BLACK, new Color(192,192,192) };
 
     String cReactionPartReaction = "reaction";  // this may only be used, if a molecule type descriptor is calculated from all merged reaction molecules
     String cReactionPartReactants = "reactants";
-//    String cReactionPartPseudoCatalysts = "catalysts";
     String cReactionPartProducts = "products";
     String cReactionPartDelimiter = " of ";
 
     int cTextExclusionTypeContains = 1;
     int cTextExclusionTypeStartsWith = 2;
-    int cTextExclusionTypeEquals = 3;
-    int cTextExclusionTypeRegEx = 4;
+    int cTextExclusionTypeEndsWith = 3;
+    int cTextExclusionTypeEquals = 4;
+    int cTextExclusionTypeRegEx = 5;
 
     int cMaxTextCategoryCount = 65536;
     int cMaxDateOrDoubleCategoryCount = 16384;
+
+    boolean cAllowLogModeForNegativeOrZeroValues = true;
 
     // summary mode for displaying values.
     int cSummaryModeNormal = 0;
@@ -79,24 +89,27 @@ public interface CompoundTableConstants {
     String[] cSummaryModeCode = { "displayNormal","displayMean","displayMedian","displayMin","displayMax","displaySum" };
 
     int cDataTypeAutomatic = 0;
-    int cDataTypeNumerical = 1;
-    int cDataTypeDate = 2;
-    int cDataTypeString = 3;
-    String[] cDataTypeCode = {"auto", "num", "date", "text"};
-    String[] cDataTypeText = {"Automatic", "Numerical", "Date", "Text"};
+    int cDataTypeFloat = 1;
+    int cDataTypeInteger = 2;
+    int cDataTypeDate = 3;
+    int cDataTypeString = 4;
+    String cForceCategoriesCode = "_categories";
+    String[] cDataTypeCode = {"auto", "num", "int", "date", "text"};
+    String[] cDataTypeText = {"Automatic", "Floating Point", "Integer", "Date", "Text"};
 
     // highlight mode for part-of-structure highlighting depending on current record similarity
     int cStructureHiliteModeFilter = 0;
     int cStructureHiliteModeCurrentRow = 1;
     int cStructureHiliteModeNone = 2;
-    String[] cStructureHiliteModeText = { "Most Recent Filter", "Current Row Similarity", "No Highlighting" };
+    String[] cStructureHiliteModeText = { "Most Recent Filter", "Similarity To Reference Row", "No Highlighting" };
     String[] cStructureHiliteModeCode = { "hiliteFilter", "hiliteCurrent", "hiliteNone" };
 
     // highlight mode for part-of-reaction highlighting depending on current record similarity
     int cReactionHiliteModeReactionCenter = 0;
+    int cReactionHiliteModeMapping = 1;
     int cReactionHiliteModeNone = 2;
-    String[] cReactionHiliteModeText = { "Reaction Center", "No Highlighting" };
-    String[] cReactionHiliteModeCode = { "hiliteReactionCenter", "hiliteNone" };
+    String[] cReactionHiliteModeText = { "Reaction Center", "Mapped Atoms", "No Highlighting" };
+    String[] cReactionHiliteModeCode = { "hiliteReactionCenter", "hiliteMapping", "hiliteNone" };
 
     String NEWLINE_REGEX = "\\r?\\n|\\r";	// regex for platform independent new line char(s)
 	String NEWLINE_STRING = "<NL>";	// used in .dwar, .txt and .cvs files to indicate next line within a cell
@@ -117,7 +130,7 @@ public interface CompoundTableConstants {
     String cColumnPropertyRelatedCatalystColumn = "catalystColumn";    // one could think of coupling solvent, condition, etc as well
     String[] cColumnRelationTypes = {cColumnPropertyRelatedIdentifierColumn, cColumnPropertyRelatedCatalystColumn};
 
-    String cColumnPropertyGroupName = "groupName";
+    String cColumnPropertyDisplayGroup = "displayGroup";  // Columns within same display group can be easily shown and hidden together; cell entries in same groups alo relate to each other in entry order
     String cColumnPropertyUseThumbNail = "useThumbNail";
     String cColumnPropertyImagePath = "imagePath";
     String cColumnPropertyIsFragment = "isFragment";    // specifies for structure & reaction columns, whether the fragment bit is set, when editing a new object
@@ -141,8 +154,11 @@ public interface CompoundTableConstants {
     String cColumnPropertyLookupCount = "lookupCount";
     String cColumnPropertyLookupName = "lookupName";
     String cColumnPropertyLookupURL = "lookupURL";
+    String cColumnPropertyLookupFilter = "lookupFilter";
+    String cColumnPropertyLookupFilterRemoveMinus = "lookupFilterRemoveMinus";
     String cColumnPropertyLookupEncode = "lookupEncode";
     String cColumnPropertyLookupDetailURL = "lookupDetailURL";
+    String cColumnPropertyCategorySpecificLookup = "catSpecificLookup";
     String cColumnPropertyLaunchCount = "launchCount";
     String cColumnPropertyLaunchName = "launchName";
     String cColumnPropertyLaunchCommand = "launchCommand";
@@ -157,11 +173,20 @@ public interface CompoundTableConstants {
     String cColumnPropertyReferenceTypeRedundant = "redundant";	// a connection is always referenced on both records
     String cColumnPropertyReferenceTypeTopDown = "topdown";	// a connection is only referenced from top record
     String cColumnPropertyFormula = "formula";
+    String cColumnPropertyCompoundProperty = "compoundProperty";
     String cColumnPropertySuperposeMolecule = "superposeMol";	// idcode+coords to be displayed in every cell
+    String cColumnPropertyProteinCavity = "proteinCavity";	// idcode+coords of protein cavity to be displayed in every cell
+    String cColumnPropertyNaturalLigand = "naturalLigand";	// idcode+coords of natural ligand, if proteinCavity is given (not shown, used for surface creation)
+    String cColumnPropertyShowNaturalLigand = "showNaturalLigand";	// whether to show the natural ligand in addition to row's structure; default is true
     String cColumnPropertySuperpose = "superpose";  // cSuperposeValueReferenceRow or null
     String cColumnPropertySuperposeAlign = "align";  // cSuperposeAlignValueShape or null
+    String cColumnProperty3DFragmentSplit = "split3D"; // if "true": unconnected fragments of 3D-structure are shown as differently colored V3DMolecules
     String cColumnPropertyCommentUploadStatus = "commentUploadStatus";
     String cColumnPropertyCommentDepartment = "commentDepartment";
+    String cColumnPropertyCalculated = "calculated"; //for columns that can be calculated by a task
+    String cColumnPropertyChemistryDisplayMode = "chemistryDisplayMode"; // display mode for molecules, e.g. to better recognize query features
+    String cColumnPropertyChemistryTextSize = "chemistryTextSize"; // display text size for molecule atom labels; default is 1.0
+    String cColumnPropertySARFirstRGroup = "firstRGroup"; // first R-group number used with core-based SAR on Scaffolds (sub-SAR)
 
     String cSuperposeValueReferenceRow = "refRow";  // "reference" or null
     String cSuperposeAlignValueShape = "shape";  // "reference" or null
@@ -194,6 +219,9 @@ public interface CompoundTableConstants {
 
     String cDataDependentPropertiesStart = "<data dependent properties type=\"";
     String cDataDependentPropertiesEnd = "</data dependent properties>";
+
+    String cViewNameStart = "<view name=\"";    // used as part of data dependent properties
+    String cViewNameEnd = "</view>";
 
     String cExtensionNameFileExplanation = "explanation";
     String cExtensionNameMacroList = "macroList";

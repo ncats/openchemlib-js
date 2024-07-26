@@ -37,7 +37,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 
 
-public class SortedList<T extends Comparable<? super T>> {
+public class SortedList<T> {
     static final long serialVersionUID = 0x20160626;
 
     private ArrayList<T> mList = new ArrayList<T>();
@@ -135,7 +135,7 @@ public class SortedList<T extends Comparable<? super T>> {
 		}
 
 	private int compare(T o1, T o2) {
-		return (mComparator != null) ? mComparator.compare(o1, o2) : o1.compareTo(o2);
+		return (mComparator != null) ? mComparator.compare(o1, o2) : ((Comparable<? super T>)o1).compareTo((T)o2);
 		}
 
 	/**
@@ -164,7 +164,7 @@ public class SortedList<T extends Comparable<? super T>> {
     * Adds object to the list provided that it doesn't contain
     * an object being considered equal by compareTo().
     * @param object
-    * @return object's list index after addition; -1 if equal object in list 
+    * @return object's list index, no matter wether it was already in the list or after addition
     */
 	public int add(T object) {
 		int index = getIndexOrInsertIndex(object);
@@ -174,6 +174,22 @@ public class SortedList<T extends Comparable<? super T>> {
 	    	}
 
 	    return index;
+		}
+
+	/**
+	 * Adds object to the list provided that it doesn't contain
+	 * an object being considered equal by compareTo().
+	 * @param object
+	 * @return whether the object was new and therefore added to the list
+	 */
+	public boolean addIfNew(T object) {
+		int index = getIndexOrInsertIndex(object);
+		if (index >= 0)
+			return false;
+
+		index = -(index+1);
+		mList.add(index, object);
+		return true;
 		}
 
 	public int size(){

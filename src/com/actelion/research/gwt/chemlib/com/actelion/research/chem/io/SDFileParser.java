@@ -39,6 +39,7 @@ import com.actelion.research.chem.UniqueStringList;
 import com.actelion.research.io.BOMSkipper;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 public class SDFileParser extends CompoundFileParser {
     private static final int DEFAULT_RECORDS_TO_INSPECT = 10240;
@@ -387,7 +388,7 @@ public class SDFileParser extends CompoundFileParser {
 			return null;
 
 		int i = index+2;
-		while (Character.isDigit(line.charAt(i)))
+		while (line.length()>i && Character.isDigit(line.charAt(i)))
 			i++;
 		
 		return (i == index+2) ? null : line.substring(index, i);

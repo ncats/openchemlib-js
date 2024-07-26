@@ -1,33 +1,30 @@
 package java.io;
 
 public class BufferedWriter {
+  public BufferedWriter() {}
 
   public BufferedWriter(FileWriter fileWriter) {
-    // TODO Auto-generated constructor stub
   }
 
   public void append(String stringBinaryDense) {
-    // TODO Auto-generated method stub
-
   }
 
   public void close() {
-    // TODO Auto-generated method stub
-
   }
 
   public void write(String string) throws IOException {
-    // TODO Auto-generated method stub
+  }
 
+  public void write(short value) {
+  }
+
+  public void write(int value) {
   }
 
   public void flush() {
-    // TODO Auto-generated method stub
-
   }
 
   public void newLine() {
-    
   }
 
 }

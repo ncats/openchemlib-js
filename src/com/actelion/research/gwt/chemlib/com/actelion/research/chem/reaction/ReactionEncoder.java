@@ -1,45 +1,45 @@
 /*
-* Copyright (c) 1997 - 2016
-* Actelion Pharmaceuticals Ltd.
-* Gewerbestrasse 16
-* CH-4123 Allschwil, Switzerland
-*
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*
-* 1. Redistributions of source code must retain the above copyright notice, this
-*    list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
-*    names of its contributors may be used to endorse or promote products
-*    derived from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-*/
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
 
 package com.actelion.research.chem.reaction;
 
-import com.actelion.research.chem.Canonizer;
-import com.actelion.research.chem.DrawingObjectList;
-import com.actelion.research.chem.IDCodeParser;
-import com.actelion.research.chem.StereoMolecule;
+import com.actelion.research.chem.*;
 import com.actelion.research.util.ArrayUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 public class ReactionEncoder
 {
@@ -47,6 +47,9 @@ public class ReactionEncoder
 	public static final char PRODUCT_IDENTIFIER = '!';
 	public static final char CATALYST_DELIMITER = '+';	// character must not collide with idcode or coordinate encodings
 	public static final char OBJECT_DELIMITER = '#';
+
+	public static final String MOLECULE_DELIMITER_STRING = " ";
+	public static final String OBJECT_DELIMITER_STRING = "#";
 
 	public static final int INCLUDE_MAPPING = 1;
 	public static final int INCLUDE_COORDS = 2;
@@ -64,14 +67,17 @@ public class ReactionEncoder
     {}
 
 	/**
-	 * Creates a String containing a unique reaction code by
+	 * Creates a String containing a canonical reaction code by
 	 * creating idcodes of every reactant and product and
-	 * concatenating them in lexical order.
+	 * concatenating them in lexically sorted order. This creates
+	 * a canonical reaction code. The drawback is, however, that
+	 * the original order of reactants and products may be changed.
 	 * If mapping information is available this will be encoded
-	 * in a 2nd string. Otherwise this will be null.
+	 * in a 2nd string. Otherwise, this will be an empty string.
 	 * Coordinates, if available, will be encoded in a 3rd string.
 	 * If there are drawing objects assigned to this reaction
 	 * then these are encoded in a 4th string.
+	 * If the reaction contains catalysts, they are encoded as 5th string.
 	 *
 	 * @return String[5] with reaction code, mapping, coordinates, drawing objects, catalysts
 	 */
@@ -80,11 +86,11 @@ public class ReactionEncoder
 	}
 
 	/**
-	 * Creates a non-unique String containing a reaction code by
-	 * creating idcodes of every reactant and product and
-	 * concatenating them in original order.
+	 * Creates a canonical or non-canonical String containing a reaction
+	 * code by creating idcodes of every reactant and product and
+	 * concatenating them in original or canonical order.
 	 * If mapping information is available this will be encoded
-	 * in a 2nd string. Otherwise this will be null.
+	 * in a 2nd string. Otherwise, this will be null.
 	 * Coordinates, if available, will be encoded in a 3rd string.
 	 * If there are drawing objects assigned to this reaction
 	 * then these are encoded in a 4th string.
@@ -92,10 +98,10 @@ public class ReactionEncoder
 	 *
 	 * @param reaction
 	 * @param keepAbsoluteCoordinates
-	 * @param sortByIDCode
+	 * @param sortByIDCode whether to sort reactant and product idcodes to produce a canonical reaction code
 	 * @return String[5] with reaction code, mapping, coordinates, drawing objects, catalysts
 	 */
-	private static String[] encode(Reaction reaction, boolean keepAbsoluteCoordinates, boolean sortByIDCode) {
+	public static String[] encode(Reaction reaction, boolean keepAbsoluteCoordinates, boolean sortByIDCode) {
 		if (reaction == null
 			|| reaction.getReactants() == 0
 			|| reaction.getProducts() == 0) {
@@ -107,7 +113,14 @@ public class ReactionEncoder
 		String[] coords = new String[reaction.getMolecules()];
 
 		for (int i = 0; i < reaction.getMolecules(); i++) {
-			Canonizer canonizer = new Canonizer(reaction.getMolecule(i));
+			StereoMolecule mol = reaction.getMolecule(i);
+
+			// reactants may not use cAtomQFRxnParityHint
+			if (mol.isFragment() && i < reaction.getReactants())
+				for (int atom=0; atom<mol.getAllAtoms(); atom++)
+					mol.setAtomQueryFeature(atom, Molecule.cAtomQFRxnParityHint, false);
+
+			Canonizer canonizer = new Canonizer(mol);
 			idcode[i] = canonizer.getIDCode();
 			if (idcode[i] == null) {
 				return null;
@@ -343,7 +356,7 @@ public class ReactionEncoder
 			StereoMolecule mol = parser.getCompactMolecule(idcode, coords);
 
 			if (mapping != null) {
-				parser.parseMapping(mapping.getBytes());
+				parser.parseMapping(mapping.getBytes(StandardCharsets.UTF_8));
 			}
 
 			if (isProduct) {
@@ -427,6 +440,7 @@ public class ReactionEncoder
 			}
 
 			IDCodeParser parser = new IDCodeParser(ensureCoordinates);
+			parser.neglectSpaceDelimitedCoordinates();
 			StereoMolecule mol = parser.getCompactMolecule(rxnCode, rxnCoords, idcodeStart, coordsStart);
 
 			if (mappingStart != -1)
@@ -582,13 +596,58 @@ public class ReactionEncoder
 	 * Generates an array of all reactants and/or products of the encoded reaction string as bytes.
 	 * If the string includes atom coordinates or if they are explicitly, these are used.
 	 * At least one of includeReactants and includeProducts must be true.
-	 * @param rxnBytes may contain atom coordinates
-	 * @param coords may be null
-	 * @param mapping may be null
+	 * @param s encoded reaction
 	 * @param includeReactants
 	 * @param includeProducts
+	 * @param includeMapping
 	 * @return null (if reactants or products are missing) or StereoMolecule array with at least one molecule
 	 */
+	public static StereoMolecule[] decodeMolecules(String s, boolean includeCoords, boolean includeMapping, boolean includeReactants, boolean includeProducts) {
+		if (s == null)
+			return null;
+
+		byte[] rxnCode = null;
+		byte[] rxnMapping = null;
+		byte[] rxnCoords = null;
+		int index1 = s.indexOf(OBJECT_DELIMITER);
+		if (index1 == -1) {
+			rxnCode = s.getBytes(StandardCharsets.UTF_8);
+		} else {
+			rxnCode = s.substring(0, index1).getBytes(StandardCharsets.UTF_8);
+			if (includeMapping || includeCoords) {
+				int index2 = s.indexOf(OBJECT_DELIMITER, index1 + 1);
+				if (index2 == -1) {
+					if (includeMapping)
+						rxnMapping = s.substring(index1 + 1).getBytes(StandardCharsets.UTF_8);
+				} else {
+					if (includeMapping)
+						rxnMapping = s.substring(index1 + 1, index2).getBytes(StandardCharsets.UTF_8);
+					if (includeCoords) {
+						int index3 = s.indexOf(OBJECT_DELIMITER, index2 + 1);
+						if (index3 == -1) {
+							rxnCoords = s.substring(index2 + 1).getBytes(StandardCharsets.UTF_8);
+						} else {
+							rxnCoords = s.substring(index2 + 1, index3).getBytes(StandardCharsets.UTF_8);
+							}
+						}
+					}
+				}
+			}
+
+		return decodeMolecules(rxnCode, rxnCoords, rxnMapping, includeReactants, includeProducts);
+		}
+
+		/**
+		 * Generates an array of all reactants and/or products of the encoded reaction string as bytes.
+		 * If the string includes atom coordinates or if they are explicitly, these are used.
+		 * At least one of includeReactants and includeProducts must be true.
+		 * @param rxnBytes may contain atom coordinates
+		 * @param coords may be null
+		 * @param mapping may be null
+		 * @param includeReactants
+		 * @param includeProducts
+		 * @return null (if reactants or products are missing) or StereoMolecule array with at least one molecule
+		 */
 	public static StereoMolecule[] decodeMolecules(byte[] rxnBytes, byte[] coords, byte[] mapping, boolean includeReactants, boolean includeProducts) {
 		if (rxnBytes == null || rxnBytes.length == 0)
 			return null;
@@ -642,11 +701,12 @@ public class ReactionEncoder
 			}
 		}
 
-		ArrayList<StereoMolecule> moleculeList = new ArrayList<StereoMolecule>();
+		ArrayList<StereoMolecule> moleculeList = new ArrayList<>();
 		if (includeReactants) {
 			int reactantIndex = 0;
 			do {
 				IDCodeParser parser = new IDCodeParser();
+				parser.neglectSpaceDelimitedCoordinates();
 				StereoMolecule reactant = parser.getCompactMolecule(rxnBytes, coords, reactantIndex, coordsIndex);
 				if (reactant.getAllAtoms() != 0)
 					moleculeList.add(reactant);
@@ -663,6 +723,7 @@ public class ReactionEncoder
 		if (includeProducts) {
 			do {
 				IDCodeParser parser = new IDCodeParser();
+				parser.neglectSpaceDelimitedCoordinates();
 				StereoMolecule product = parser.getCompactMolecule(rxnBytes, coords, productIndex, coordsIndex);
 				if (product.getAllAtoms() != 0)
 					moleculeList.add(product);
@@ -715,5 +776,52 @@ public class ReactionEncoder
 		}
 
 		return catalystList.size() == 0 ? null : catalystList.toArray(new StereoMolecule[0]);
+	}
+
+	/**
+	 * Generates an array of all reactants and/or products of the encoded reaction string as bytes.
+	 * If the string includes atom coordinates or if they are explicitly, these are used.
+	 * At least one of includeReactants and includeProducts must be true.
+	 * @param rxnBytes may contain atom coordinates
+	 * @return null (if reactants or products are missing) or StereoMolecule array with at least one molecule
+	 */
+	public static byte[][] getMoleculeIDCodes(byte[] rxnBytes, boolean includeReactants, boolean includeProducts) {
+		if (rxnBytes == null || rxnBytes.length == 0)
+			return null;
+
+		int reactantEnd = ArrayUtils.indexOf(rxnBytes, (byte)ReactionEncoder.PRODUCT_IDENTIFIER);
+		if (reactantEnd <= 0)
+			return null;
+
+		int productIndex = reactantEnd + 1;
+		int productEnd = ArrayUtils.indexOf(rxnBytes, (byte)ReactionEncoder.OBJECT_DELIMITER, productIndex);
+		if (productEnd == -1)
+			productEnd = rxnBytes.length;
+
+		if (productIndex == productEnd)
+			return null;
+
+		ArrayList<byte[]> moleculeList = new ArrayList<>();
+		if (includeReactants) {
+			int reactantIndex = 0;
+			while (reactantIndex < reactantEnd) {
+				int index2 = ArrayUtils.indexOf(rxnBytes, (byte)ReactionEncoder.MOLECULE_DELIMITER, reactantIndex);
+				if (index2 == -1)
+					index2 = reactantEnd;
+				moleculeList.add(Arrays.copyOfRange(rxnBytes, reactantIndex, index2));
+				reactantIndex = 1 + index2;
+			}
+		}
+		if (includeProducts) {
+			while (productIndex < productEnd) {
+				int index2 = ArrayUtils.indexOf(rxnBytes, (byte)ReactionEncoder.MOLECULE_DELIMITER, productIndex);
+				if (index2 == -1)
+					index2 = productEnd;
+				moleculeList.add(Arrays.copyOfRange(rxnBytes, productIndex, index2));
+				productIndex = 1 + index2;
+			}
+		}
+
+		return moleculeList.size() == 0 ? null : moleculeList.toArray(new byte[0][]);
 	}
 }

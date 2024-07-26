@@ -1,19 +1,18 @@
 'use strict';
 
-const childProcess = require('child_process');
-const path = require('path');
-const os = require('os');
+const childProcess = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
-const fs = require('fs-extra');
-const rimraf = require('rimraf');
 const exporter = require('gwt-api-exporter');
 const yargs = require('yargs');
 
 const pack = require('../package.json');
 
-const extendMinimal = require('./extend/minimal');
 const extendCore = require('./extend/core');
 const extendFull = require('./extend/full');
+const extendMinimal = require('./extend/minimal');
 let modules = require('./modules.json');
 
 const argv = yargs
@@ -66,12 +65,11 @@ if (argv.m) {
 let config;
 try {
   config = require('../config.json');
-} catch (e) {
+} catch {
   // eslint-disable-next-line no-console
   console.error(
     'config.json not found. You can copy config.default.json to start from an example.',
   );
-  // eslint-disable-next-line no-process-exit
   process.exit(1);
 }
 
@@ -100,7 +98,7 @@ function run(command) {
 }
 
 function copyOpenchemlib() {
-  const chemlibDir = path.resolve(config.openchemlib, 'main/java/com');
+  const chemlibDir = path.join(__dirname, '../openchemlib/src/main/java/com');
   const outDir = path.join(
     __dirname,
     '../src/com/actelion/research/gwt/chemlib/com',
@@ -109,58 +107,60 @@ function copyOpenchemlib() {
 
   const chemlibClasses = require('./openchemlib/classes');
 
-  if (fs.existsSync(outDir)) {
-    rimraf.sync(outDir);
-  }
-  fs.copySync(chemlibDir, outDir);
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.cpSync(chemlibDir, outDir, { recursive: true });
 
-  const openMolDir = path.resolve(config.openchemlib, 'main/java/org');
-  const outOpenMolDir = path.join(
-    __dirname,
-    '../src/com/actelion/research/gwt/chemlib/org',
-  );
+  copyAdditionalDir('org');
+  copyAdditionalDir('info');
 
-  if (fs.existsSync(outOpenMolDir)) {
-    rimraf.sync(outOpenMolDir);
+  const removed = chemlibClasses.removed;
+  for (const removedFile of removed) {
+    fs.rmSync(path.join(outDir, removedFile), { recursive: true });
   }
-  fs.copySync(openMolDir, outOpenMolDir);
 
   const modified = chemlibClasses.modified;
   log(`Copying ${modified.length} modified classes`);
   for (let i = 0; i < modified.length; i++) {
-    fs.copySync(
+    fs.cpSync(
       path.join(modifiedDir, modified[i]),
       path.join(outDir, modified[i]),
+      { recursive: true },
     );
   }
 
   const changed = chemlibClasses.changed;
-  for (let i = 0; i < changed.length; i++) {
-    const file = changed[i][0];
-    const callback = changed[i][1];
-    const data = fs.readFileSync(path.join(outDir, file), 'utf8');
-    const result = callback(data);
-    fs.writeFileSync(path.join(outDir, file), result);
-  }
-
-  const removed = chemlibClasses.removed;
-  for (const removedFile of removed) {
-    fs.removeSync(path.join(outDir, removedFile));
+  for (const [file, transformers] of changed) {
+    let data = fs.readFileSync(path.join(outDir, file), 'utf8');
+    for (const transformer of transformers) {
+      data = transformer(data);
+    }
+    fs.writeFileSync(path.join(outDir, file), data);
   }
 
   const generated = chemlibClasses.generated;
   for (const generatedFile of generated) {
-    fs.writeFileSync(
-      path.join(outDir, generatedFile[0]),
-      generatedFile[1]({
-        config,
-      }),
-    );
+    fs.writeFileSync(path.join(outDir, generatedFile[0]), generatedFile[1]());
   }
+}
+
+function copyAdditionalDir(name) {
+  const sourceDir = path.join(__dirname, '../openchemlib/src/main/java', name);
+  const destDir = path.join(
+    __dirname,
+    '../src/com/actelion/research/gwt/chemlib',
+    name,
+  );
+
+  fs.rmSync(destDir, { recursive: true, force: true });
+  fs.cpSync(sourceDir, destDir, { recursive: true });
 }
 
 function compile(mode) {
   let min = mode === 'min';
+  let PATH = process.env.PATH;
+  if (config.jdk) {
+    PATH = `${path.resolve(config.jdk, 'bin')}:${PATH}`;
+  }
   for (let i = 0; i < modules.length; i++) {
     log(`Compiling module ${modules[i].name}`);
     let args = [
@@ -184,10 +184,13 @@ function compile(mode) {
     ];
     let result;
     try {
-      result = childProcess.execFileSync('java', args, { maxBuffer: Infinity });
-    } catch (e) {
-      result = e.stdout;
-      throw e;
+      result = childProcess.execFileSync('java', args, {
+        maxBuffer: Infinity,
+        env: { ...process.env, PATH },
+      });
+    } catch (error) {
+      result = error.stdout;
+      throw error;
     } finally {
       if (verbose) {
         let name = `compile-${modules[i].name}.log`;
@@ -198,11 +201,12 @@ function compile(mode) {
   }
 }
 
-function build() {
+async function build() {
   let prom = [];
-  for (let k = 0; k < modules.length; k++) {
-    let mod = modules[k];
-    log(`Exporting module ${mod.name}`);
+  fs.mkdirSync('dist', { recursive: true });
+  log('Exporting modules');
+  for (const mod of modules) {
+    log(`Exporting module ${mod.name}${suffix}`);
     let warDir = path.join('war', mod.war);
     let files = fs.readdirSync(warDir);
     let file;
@@ -226,7 +230,7 @@ function build() {
       }),
     );
   }
-  return Promise.all(prom);
+  await Promise.all(prom);
 }
 
 function log(value) {
@@ -239,7 +243,6 @@ function log(value) {
 function handleCatch(err) {
   // eslint-disable-next-line no-console
   console.error(err);
-  // eslint-disable-next-line no-process-exit
   process.exit(1);
 }
 

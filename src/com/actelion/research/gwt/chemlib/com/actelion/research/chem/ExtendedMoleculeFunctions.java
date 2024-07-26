@@ -1,4 +1,36 @@
 /*
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/*
 * Copyright (c) 1997 - 2016
 * Actelion Pharmaceuticals Ltd.
 * Gewerbestrasse 16
@@ -34,7 +66,9 @@
 package com.actelion.research.chem;
 
 import com.actelion.research.calc.ArrayUtilsCalc;
+import com.actelion.research.chem.descriptor.DescriptorEncoder;
 import com.actelion.research.chem.descriptor.DescriptorHandler;
+import com.actelion.research.util.BurtleHasher;
 
 import java.util.*;
 
@@ -42,9 +76,6 @@ import java.util.*;
  *
  *
  * ExtendedMoleculeFunctions
- * <p>Copyright: Actelion Ltd., Inc. All Rights Reserved
- * This software is the proprietary information of Actelion Pharmaceuticals, Ltd.
- * Use is subject to license terms.</p>
  * @author Modest von Korff
  * @version 1.0
  * 2005 MvK: Start implementation
@@ -62,7 +93,33 @@ public class ExtendedMoleculeFunctions {
 	public static final String [] arrRGroupsSymbol = {"R1","R2","R3","R4","R5","R6","R7","R8","R9","R10","R11","R12","R13","R14","R15","R16"};
 
 
+	public final static Coordinates getCenterGravity(ExtendedMolecule mol) {
 
+		int n = mol.getAllAtoms();
+
+		int [] indices = new int [n];
+
+		for (int i = 0; i < indices.length; i++) {
+			indices[i]=i;
+		}
+
+		return getCenterGravity(mol, indices);
+	}
+
+	public final static Coordinates getCenterGravity(ExtendedMolecule mol, int[] indices) {
+
+		Coordinates c = new Coordinates();
+		for (int i = 0; i < indices.length; i++) {
+			c.x += mol.getAtomX(indices[i]);
+			c.y += mol.getAtomY(indices[i]);
+			c.z += mol.getAtomZ(indices[i]);
+		}
+		c.x /= indices.length;
+		c.y /= indices.length;
+		c.z /= indices.length;
+
+		return c;
+	}
 
 
 	public static void makeSkeleton(StereoMolecule mol) {
@@ -207,6 +264,31 @@ public class ExtendedMoleculeFunctions {
 		return hetero;
 	}
 
+	public static int getNumBondsNoHydrogen(ExtendedMolecule mol) {
+		int bnds = 0;
+		for (int i = 0; i < mol.getBonds(); i++) {
+			int at1 = mol.getBondAtom(0,i);
+			int atNo1 = mol.getAtomicNo(at1);
+			int at2 = mol.getBondAtom(1,i);
+			int atNo2 = mol.getAtomicNo(at2);
+			if(atNo1!=1 && atNo2!=1) {
+				bnds++;
+			}
+		}
+		return bnds;
+	}
+	public static int getNumNonHydrogenAtoms(ExtendedMolecule mol) {
+		int non = 0;
+
+		for (int i = 0; i < mol.getAtoms(); i++) {
+			int atomicNo = mol.getAtomicNo(i);
+			if(atomicNo!=1) {
+				non++;
+			}
+		}
+
+		return non;
+	}
 	public static int getNumCarbonAtoms(ExtendedMolecule mol) {
 		int carbon = 0;
 
@@ -597,6 +679,18 @@ public class ExtendedMoleculeFunctions {
 		return bOk;
 	}
 
+	public static boolean containsHeteroAtom(ExtendedMolecule mol, int [] arrIndexAt) {
+		boolean hetero=false;
+
+		for (int indexAt : arrIndexAt) {
+			if(mol.getAtomicNo(indexAt)!=6 && mol.getAtomicNo(indexAt)!=1){
+				hetero=true;
+				break;
+			}
+		}
+		return hetero;
+	}
+
 	/**
 	 *
 	 * @param mol
@@ -719,9 +813,7 @@ public class ExtendedMoleculeFunctions {
 	}
 
 	public final static int [][] getTopologicalDistanceMatrix(StereoMolecule mol) {
-
 		return getNumberOfBondsBetweenAtoms(mol, mol.getBonds(), null);
-
 	}
 
 	/**
@@ -881,6 +973,63 @@ public class ExtendedMoleculeFunctions {
 		return hetero;
 	}
 
+	/**
+	 *
+	 * @param mol
+	 * @param atomIndex
+	 * @return true if at least one neighbour is a hetero atom.
+	 */
+	public static boolean isCarbonConnected2Hetero(StereoMolecule mol, int atomIndex) {
+
+		boolean hetero = false;
+
+		int atomicNo = mol.getAtomicNo(atomIndex);
+
+		if(atomicNo==6){
+
+			int connected = mol.getConnAtoms(atomIndex);
+
+			for (int j = 0; j < connected; j++) {
+
+				int indexConnected = mol.getConnAtom(atomIndex, j);
+
+				if(mol.getAtomicNo(indexConnected)!=6 && mol.getAtomicNo(indexConnected)!=1){
+					hetero = true;
+					break;
+				}
+			}
+		}
+
+		return hetero;
+	}
+
+	/**
+	 *
+	 * @param mol
+	 * @param arrAtomIndex
+	 * @return true if one of the atoms from arrAtomIndex is connected to a hetero atom.
+	 */
+	public static boolean isConnected2Hetero(StereoMolecule mol, int [] arrAtomIndex) {
+
+		boolean hetero = false;
+
+		for (int atomIndex : arrAtomIndex) {
+
+			int connected = mol.getConnAtoms(atomIndex);
+
+			for (int j = 0; j < connected; j++) {
+
+				int indexConnected = mol.getConnAtom(atomIndex, j);
+
+				if(mol.getAtomicNo(indexConnected)!=6 && mol.getAtomicNo(indexConnected)!=1){
+					hetero = true;
+					break;
+				}
+			}
+		}
+		return hetero;
+	}
+
 	public static boolean isRingInMolecule(StereoMolecule mol) {
 
 		boolean ring = false;
@@ -918,6 +1067,23 @@ public class ExtendedMoleculeFunctions {
 		}
 
 		return ring;
+	}
+
+	public static boolean containsFiveBindingCarbon(StereoMolecule mol) {
+
+		boolean five=false;
+		for (int i = 0; i < mol.getAtoms(); i++) {
+			if(mol.getAtomicNo(i)==6){
+				int sumBO=0;
+				for (int j = 0; j < mol.getConnAtoms(i); j++) {
+					int bo = mol.getConnBondOrder(i,j);
+					sumBO+=bo;
+				}
+				five=(sumBO>4)?true:false;
+			}
+		}
+
+		return five;
 	}
 
 	/**
@@ -1014,6 +1180,74 @@ public class ExtendedMoleculeFunctions {
 		}
 
 		return oxy;
+	}
+
+	/**
+	 *
+	 * @param mol
+	 * @param indexAtCentral
+	 * @param arrIndexAt
+	 * @return true if no connected carbon atom is in arrIndexAt
+	 */
+	public static boolean isIsolatedCarbon(StereoMolecule mol, int indexAtCentral, int [] arrIndexAt){
+
+		boolean isolated=true;
+		int nConnected = mol.getConnAtoms(indexAtCentral);
+		boolean [] arrConnected = new boolean[mol.getAtoms()];
+
+		for (int i = 0; i < nConnected; i++) {
+			arrConnected[mol.getConnAtom(indexAtCentral,i)]=true;
+		}
+
+		for (int indexAt : arrIndexAt) {
+			if(!arrConnected[indexAt]){
+				continue;
+			}
+			if(mol.getAtomicNo(indexAt)==6){
+				isolated=false;
+				break;
+			}
+		}
+
+		return isolated;
+	}
+
+	public static int [] extractAromaticRing(StereoMolecule mol, int [] arrIndexAt){
+
+		RingCollection rc = mol.getRingSet();
+
+		boolean [] arrRingMemberMarker = new boolean[mol.getAtoms()];
+
+		int [] arrIndexAromaticRing = null;
+
+		for (int i = 0; i < rc.getSize(); i++) {
+
+			if(!rc.isAromatic(i)){
+				continue;
+			}
+
+			Arrays.fill(arrRingMemberMarker, false);
+
+			int [] arrRingAtoms = rc.getRingAtoms(i);
+
+			for (int indexRingAtom : arrRingAtoms) {
+				arrRingMemberMarker[indexRingAtom]=true;
+			}
+
+			int sum=0;
+			for (int indexAt : arrIndexAt) {
+				if(arrRingMemberMarker[indexAt]){
+					sum++;
+				}
+			}
+
+			if(sum==arrRingAtoms.length){
+				arrIndexAromaticRing=arrRingAtoms;
+				break;
+			}
+		}
+
+		return arrIndexAromaticRing;
 	}
 
 	/**
@@ -1503,6 +1737,56 @@ public class ExtendedMoleculeFunctions {
 
 		return dh.getSimilarity(d1, d2);
 	}
+
+	/**
+	 * Taken from Thomas Sander SkeletonSpheres descriptor
+	 * @param mol
+	 * @param rootAtom atom index to start
+	 * @param depth so many spheres are taken
+	 * @return Fragment containing the spheres started at rootAtom
+	 */
+	public static StereoMolecule getSphere(StereoMolecule mol, int rootAtom, int depth){
+
+		mol.ensureHelperArrays(Molecule.cHelperRings);
+		StereoMolecule fragment = new StereoMolecule(mol.getAtoms(), mol.getBonds());
+
+		int[] atomList = new int[mol.getAtoms()];
+		boolean[] atomMask = new boolean[mol.getAtoms()];
+		if (rootAtom != 0)
+			Arrays.fill(atomMask, false);
+
+		int min = 0;
+		int max = 0;
+
+		for (int sphere=0; sphere<depth && max<mol.getAtoms(); sphere++) {
+			if (max == 0) {
+				atomList[0] = rootAtom;
+				atomMask[rootAtom] = true;
+				max = 1;
+			}
+			else {
+				int newMax = max;
+				for (int i=min; i<max; i++) {
+					int atom = atomList[i];
+					for (int j=0; j<mol.getConnAtoms(atom); j++) {
+						int connAtom = mol.getConnAtom(atom, j);
+						if (!atomMask[connAtom]) {
+							atomMask[connAtom] = true;
+							atomList[newMax++] = connAtom;
+						}
+					}
+				}
+				min = max;
+				max = newMax;
+			}
+
+			mol.copyMoleculeByAtoms(fragment, atomMask, true, null);
+		}
+
+		return fragment;
+
+	}
+
 
 	/**
 	 * Starts with 1 and goes until 16

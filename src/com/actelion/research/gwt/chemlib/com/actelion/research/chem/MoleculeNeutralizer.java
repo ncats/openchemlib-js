@@ -44,7 +44,7 @@ public class MoleculeNeutralizer {
 	 * @param mol
 	 * @return remaining overall charge, which may be different from 0 if complete neutralization cannot be achieved
 	 */
-	public int neutralizeChargedMolecule(StereoMolecule mol) {
+	public static int neutralizeChargedMolecule(StereoMolecule mol) {
 		mol.ensureHelperArrays(Molecule.cHelperRings);
 
 		int overallCharge = 0;
@@ -88,7 +88,7 @@ public class MoleculeNeutralizer {
 							boolean[] isAromaticBond = new boolean[mol.getBonds()];
 							mol.findRingSystem(chargedAtom, true, isAromaticAtom, isAromaticBond);
 
-							// now we try to locate a pyrrole nitrogen that my serve as a electron pair donor by loosing a hydrogen
+							// now we try to locate a pyrrole nitrogen that may serve as an electron pair donor by loosing a hydrogen
 							for (int donorAtom = 0; donorAtom < mol.getAtoms(); donorAtom++) {
 								if (isAromaticAtom[donorAtom]
 										&& mol.getAtomicNo(donorAtom) == 7
@@ -140,8 +140,12 @@ public class MoleculeNeutralizer {
 									}
 
 									if (!found) {
-										if (noOfMembers == member.length)
-											member = (int[]) Molecule.copyOf(member, 2 * member.length);
+										if (noOfMembers == member.length) {
+											// for cartridge compatibility use old Java 5 method rather than Arrays.copy():
+											int[] copy = new int[2 * member.length];
+											System.arraycopy(member, 0, copy, 0, member.length);
+											member = copy;
+										}
 
 										member[noOfMembers++] = atom;
 									}
@@ -203,7 +207,7 @@ public class MoleculeNeutralizer {
 	 * @param donorAtom
 	 * @return true if mol was successfully changed
 	 */
-	private boolean removeHydrogenAndDelocalize(StereoMolecule mol, boolean[] isAromaticBond,
+	private static boolean removeHydrogenAndDelocalize(StereoMolecule mol, boolean[] isAromaticBond,
 												int chargedAtom, int donorAtom)
 	{
 
@@ -260,7 +264,7 @@ public class MoleculeNeutralizer {
 		return false;
 	}
 
-	private int removeAcidicHydrogens(StereoMolecule mol, int maxHydrogens) {
+	private static int removeAcidicHydrogens(StereoMolecule mol, int maxHydrogens) {
 		if (maxHydrogens > 0)	// HF
 			maxHydrogens = removeHydrogensFromHalogene(mol, maxHydrogens, 9);
 		if (maxHydrogens > 0)	// HCl
@@ -305,7 +309,7 @@ public class MoleculeNeutralizer {
 		return maxHydrogens;
 	}
 
-	private int removeHydrogensFromHalogene(StereoMolecule mol, int maxHydrogens, int atomicNo) {
+	private static int removeHydrogensFromHalogene(StereoMolecule mol, int maxHydrogens, int atomicNo) {
 		for (int atom=0; atom<mol.getAtoms(); atom++) {
 			if (mol.getAtomicNo(atom) == atomicNo
 			 && mol.getAtomCharge(atom) == 0
@@ -319,7 +323,7 @@ public class MoleculeNeutralizer {
 		return maxHydrogens;
 	}
 
-	private int removeAcidicHydrogensFromAcid(StereoMolecule mol, int maxHydrogens, int atomicNo, int centralAtomicNo) {
+	private static int removeAcidicHydrogensFromAcid(StereoMolecule mol, int maxHydrogens, int atomicNo, int centralAtomicNo) {
 		for (int atom=0; atom<mol.getAtoms(); atom++) {
 			if (mol.getAtomicNo(atom) == atomicNo
 			 && mol.getAtomCharge(atom) == 0
@@ -360,7 +364,7 @@ public class MoleculeNeutralizer {
 		return maxHydrogens;
 	}
 
-	private int electronegativity(int atomicNo) {
+	private static int electronegativity(int atomicNo) {
 		switch (atomicNo) {
 			case 6:
 				return 1; // C

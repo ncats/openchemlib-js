@@ -1,35 +1,36 @@
 /*
-* Copyright (c) 1997 - 2016
-* Actelion Pharmaceuticals Ltd.
-* Gewerbestrasse 16
-* CH-4123 Allschwil, Switzerland
-*
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*
-* 1. Redistributions of source code must retain the above copyright notice, this
-*    list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
-*    names of its contributors may be used to endorse or promote products
-*    derived from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-*/
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
 
 package com.actelion.research.chem;
 
@@ -133,8 +134,8 @@ public class AtomFunctionAnalyzer {
 		for (int i=0; i<mol.getConnAtoms(atom); i++) {
 			int conn = mol.getConnAtom(atom, i);
 			if (mol.getAtomicNo(conn) != 6
-			 || (mol.getAtomPi(conn) != 0 && !mol.isAromaticAtom(conn))
-			 || getNegativeNeighbourCount(mol, conn) != 1) {
+			 || (!mol.isAromaticAtom(conn)
+			  && (mol.getAtomPi(conn) != 0 || getNegativeNeighbourCount(mol, conn) != 1))) {
 				return false;
 				}
 			}
@@ -150,15 +151,16 @@ public class AtomFunctionAnalyzer {
 		for (int i=0; i<mol.getConnAtoms(atom); i++) {
 			int conn = mol.getConnAtom(atom, i);
 			if (mol.getAtomicNo(conn) != 6
-			 || (mol.getAtomPi(conn) != 0 && !mol.isAromaticAtom(conn))
-			 || getNegativeNeighbourCount(mol, conn) != 1)
+			 || (!mol.isAromaticAtom(conn)
+			  && (mol.getAtomPi(conn) != 0 || getNegativeNeighbourCount(mol, conn) != 1))) {
 				return false;
+				}
 			if (mol.isAromaticAtom(conn))
 				aromaticNeighbourFound = true;
 			}
 
 		return aromaticNeighbourFound;
-	}
+		}
 	
 	public static boolean hasUnbalancedAtomCharge(StereoMolecule mol, int atom) {
 		
@@ -193,25 +195,19 @@ public class AtomFunctionAnalyzer {
 	}
 
 	public static boolean isAcidicOxygen(StereoMolecule mol, int atom) {
-		
-		boolean acidic=false;
-		
-		if (mol.getAtomicNo(atom) != 8)
-			return false;
-		
-		if (mol.getConnAtoms(atom) != 1)
+		if (mol.getAtomicNo(atom) != 8
+		 || mol.getAtomCharge(atom) != 0
+		 || mol.getConnAtoms(atom) != 1
+		 || mol.getConnBondOrder(atom, 0) != 1)
 			return false;
 
-		if (mol.getConnBondOrder(atom, 0) != 1)
-			return false;
-
-		int indexConnected = mol.getConnAtom(atom, 0);
+		int connAtom = mol.getConnAtom(atom, 0);
 
 		// COOH
-		if(mol.getAtomicNo(indexConnected)==6){
-			int nConnected2C = mol.getConnAtoms(indexConnected);
+		if(mol.getAtomicNo(connAtom)==6){
+			int nConnected2C = mol.getConnAtoms(connAtom);
 			for (int i = 0; i < nConnected2C; i++) {
-				int indexAtom = mol.getConnAtom(indexConnected, i);
+				int indexAtom = mol.getConnAtom(connAtom, i);
 				
 				if(indexAtom==atom){
 					continue;
@@ -221,85 +217,70 @@ public class AtomFunctionAnalyzer {
 					continue;
 				}
 				
-				int indexBond = mol.getBond(indexConnected, indexAtom);
+				int indexBond = mol.getBond(connAtom, indexAtom);
 				
-				if(mol.getBondType(indexBond)==Molecule.cBondTypeDouble){
-					acidic=true;
-					break;
-				}
+				if(mol.getBondType(indexBond)==Molecule.cBondTypeDouble)
+					return true;
 			}
-		} else if (mol.getAtomicNo(indexConnected) == 7) {
-			if (mol.getAtomCharge(indexConnected) == 1) // (N+)-OH
-				acidic=true;
-		} else if (mol.getAtomicNo(indexConnected) == 16) { // CSOOOH
-			int nConnected2S = mol.getConnAtoms(indexConnected);
+		} else if (mol.getAtomicNo(connAtom) == 7) {
+			if (mol.getAtomCharge(connAtom) == 1) // (N+)-OH
+				return true;
+		} else if (mol.getAtomicNo(connAtom) == 16) { // CSOOOH
+			int nConnected2S = mol.getConnAtoms(connAtom);
 			
 			int nDoubleBondedO2S=0;
 			for (int i = 0; i < nConnected2S; i++) {
-				int indexAtom = mol.getConnAtom(indexConnected, i);
+				int indexAtom = mol.getConnAtom(connAtom, i);
 				
-				if(indexAtom==atom){
+				if(indexAtom==atom)
 					continue;
-				}
-				
-				if(mol.getAtomicNo(indexAtom) != 8){
+
+				if(mol.getAtomicNo(indexAtom) != 8)
 					continue;
-				}
+
+				int indexBond = mol.getBond(connAtom, indexAtom);
 				
-				int indexBond = mol.getBond(indexConnected, indexAtom);
-				
-				if(mol.getBondType(indexBond)==Molecule.cBondTypeDouble){
+				if(mol.getBondType(indexBond)==Molecule.cBondTypeDouble)
 					nDoubleBondedO2S++;
-				}
 			}
 			
-			if(nDoubleBondedO2S==2){
-				acidic=true;
-			}
-			
-		} else if(isAcidicOxygenAtPhosphoricAcid(mol, atom)){ // CP=O(OH)(OH)
-			acidic=true;
-				
-		}
-		
-		return acidic;
+			if(nDoubleBondedO2S == 2)
+				return true;
+		} else if(isAcidicOxygenAtPhosphoricAcid(mol, atom)) // CP=O(OH)(OH)
+			return true;
+
+		return false;
 	}
 	
 	public static boolean isAcidicOxygenAtPhosphoricAcid(StereoMolecule mol, int atom) {
-		boolean acidic=false;
-		
 		if (mol.getAtomicNo(atom) != 8)
 			return false;
 		
 		if (mol.getConnAtoms(atom)!=1)
 			return false;
 		
-		int indexConnected = mol.getConnAtom(atom, 0);
+		int connAtom = mol.getConnAtom(atom, 0);
 		
-		if(mol.getAtomicNo(indexConnected)==15){ // CP=O(OH)(OH)
-			int nConnected2P = mol.getConnAtoms(indexConnected);
+		if(mol.getAtomicNo(connAtom)==15){ // CP=O(OH)(OH)
+			int nConnected2P = mol.getConnAtoms(connAtom);
 			
 			for (int i = 0; i < nConnected2P; i++) {
-				int indexAtom = mol.getConnAtom(indexConnected, i);
+				int indexAtom = mol.getConnAtom(connAtom, i);
 				
-				if(indexAtom==atom){
+				if(indexAtom==atom)
 					continue;
-				}
-				
-				if(mol.getAtomicNo(indexAtom) != 8){
+
+				if(mol.getAtomicNo(indexAtom) != 8)
 					continue;
-				}
+
+				int indexBond = mol.getBond(connAtom, indexAtom);
 				
-				int indexBond = mol.getBond(indexConnected, indexAtom);
-				
-				if(mol.getBondType(indexBond)==Molecule.cBondTypeDouble){
-					acidic=true;
-					break;
-				}
+				if(mol.getBondType(indexBond)==Molecule.cBondTypeDouble)
+					return true;
 			}
 		}
 		
-		return acidic;
+		return false;
 	}
 	
 
@@ -373,10 +354,9 @@ public class AtomFunctionAnalyzer {
 	
 	
 	public static boolean isBasicNitrogen(StereoMolecule mol, int atom) {
-		if (mol.getAtomicNo(atom) != 7)
-			return false;
-
-		if (mol.getConnAtoms(atom) + mol.getAtomPi(atom) > 3)
+		if (mol.getAtomicNo(atom) != 7
+		 || mol.getAtomCharge(atom) != 0
+		 || (mol.getConnAtoms(atom) + mol.getAtomPi(atom) > 3))
 			return false;
 
 		if (mol.isAromaticAtom(atom)) {

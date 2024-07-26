@@ -1,7 +1,7 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const folder = 'main/resources/resources/cod';
 const files = [
@@ -23,17 +23,25 @@ const end = `
 }
 `;
 
-function generateTorsionDBData({ config }) {
+function generateTorsionDBData() {
   const torsionDBData = [start];
   for (const file of files) {
     const contents = fs.readFileSync(
-      path.join(config.openchemlib, folder, `${file}.txt`),
+      path.join(__dirname, '../../openchemlib/src', folder, `${file}.txt`),
       'utf8',
     );
-    const lines = contents.split('\n').filter((l) => l.length > 0);
-    const linesArray = lines.map((line) => JSON.stringify(line)).join(', ');
+    const lines = contents
+      .split('\n')
+      .filter((l) => l.length > 0)
+      .join('\n');
     torsionDBData.push(
-      `\npublic static final String[] get${file}Data() { String[] result = { ${linesArray} }; return result; }\n`,
+      `
+public static final String[] get${file}Data() {
+  String data = ${JSON.stringify(lines)};
+  String[] result = data.split("\\n");
+  return result;
+}
+`,
     );
   }
   torsionDBData.push(end);

@@ -1,13 +1,27 @@
 /*
- * @(#)TorsionSetStrategyLikelySystematic.java
+ * Copyright 2013-2020 Thomas Sander, openmolecules.org
  *
- * Copyright 2013 openmolecules.org, Inc. All Rights Reserved.
- * 
- * NOTICE: All information contained herein is, and remains the property
- * of openmolecules.org.  The intellectual and technical concepts contained
- * herein are proprietary to openmolecules.org.
- * Actelion Pharmaceuticals Ltd. is granted a non-exclusive, non-transferable
- * and timely unlimited usage license.
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @author Thomas Sander
  */
@@ -15,7 +29,6 @@
 package org.openmolecules.chem.conf.gen;
 
 import java.util.Arrays;
-import java.util.Comparator;
 
 /**
  * TorsionSetStrategy that systematically creates all possible TorsionSets in
@@ -27,12 +40,12 @@ public class TorsionSetStrategyLikelySystematic extends TorsionSetStrategy {
 	private TorsionSet[]	mAvailableTorsionSet;
 	private int				mAvailableTorsionSetIndex;
 
-	public TorsionSetStrategyLikelySystematic(RotatableBond[] rotatableBond, Rigid3DFragment[] fragment) {
-		super(rotatableBond, fragment);
-		mCurrentMaxTorsionIndex = new int[rotatableBond.length];
-		mCurrentMaxConformerIndex = new int[fragment.length];
+	public TorsionSetStrategyLikelySystematic(ConformerGenerator conformerGenerator) {
+		super(conformerGenerator);
+		mCurrentMaxTorsionIndex = new int[mRotatableBond.length];
+		mCurrentMaxConformerIndex = new int[mRigidFragment.length];
 		mAvailableTorsionSet = new TorsionSet[1];
-		mAvailableTorsionSet[0] = createTorsionSet(new int[rotatableBond.length], new int[fragment.length]);
+		mAvailableTorsionSet[0] = createTorsionSet(new int[mRotatableBond.length], new int[mRigidFragment.length]);
 		mAvailableTorsionSetIndex = -1;
 		}
 
@@ -62,23 +75,24 @@ public class TorsionSetStrategyLikelySystematic extends TorsionSetStrategy {
 		int bestIndex = -1;
 		boolean isConformerIndex = false;
 		double minLoss = Double.MAX_VALUE;
-		for (int i=0; i<mCurrentMaxTorsionIndex.length; i++) {
-			if (mCurrentMaxTorsionIndex[i] < mRotatableBond[i].getTorsionCount()-1) {
-				double loss = mRotatableBond[i].getTorsionLikelyhood(mCurrentMaxTorsionIndex[i])
-							/ mRotatableBond[i].getTorsionLikelyhood(mCurrentMaxTorsionIndex[i]+1);
+		BaseConformer baseConformer = mConformerGenerator.getBaseConformer(mCurrentMaxConformerIndex);
+		for (int rb=0; rb<mCurrentMaxTorsionIndex.length; rb++) {
+			if (mCurrentMaxTorsionIndex[rb] < mRotatableBond[rb].getTorsionCount()-1) {
+				double loss = baseConformer.getTorsionLikelyhood(rb, mCurrentMaxTorsionIndex[rb])
+							/ baseConformer.getTorsionLikelyhood(rb, mCurrentMaxTorsionIndex[rb]+1);
 				if (minLoss > loss) {
 					minLoss = loss;
-					bestIndex = i;
+					bestIndex = rb;
 					}
 				}
 			}
-		for (int i=0; i<mCurrentMaxConformerIndex.length; i++) {
-			if (mCurrentMaxConformerIndex[i] < mRigidFragment[i].getConformerCount()-1) {
-				double loss = mRigidFragment[i].getConformerLikelyhood(mCurrentMaxConformerIndex[i])
-						    / mRigidFragment[i].getConformerLikelyhood(mCurrentMaxConformerIndex[i]+1);
+		for (int rf=0; rf<mCurrentMaxConformerIndex.length; rf++) {
+			if (mCurrentMaxConformerIndex[rf] < mRigidFragment[rf].getConformerCount()-1) {
+				double loss = mRigidFragment[rf].getConformerLikelihood(mCurrentMaxConformerIndex[rf])
+						    / mRigidFragment[rf].getConformerLikelihood(mCurrentMaxConformerIndex[rf]+1);
 				if (minLoss > loss) {
 					minLoss = loss;
-					bestIndex = i;
+					bestIndex = rf;
 					isConformerIndex = true;
 					}
 				}
@@ -135,12 +149,8 @@ public class TorsionSetStrategyLikelySystematic extends TorsionSetStrategy {
 			mAvailableTorsionSet[i] = createTorsionSet(torsionIndex, conformerIndex);
 			}
 
-		Arrays.sort(mAvailableTorsionSet, new Comparator<TorsionSet>() {
-			@Override
-			public int compare(TorsionSet ts1, TorsionSet ts2) {
-				return ts1.getLikelyhood() == ts2.getLikelyhood() ? 0
-					 : ts1.getLikelyhood() > ts2.getLikelyhood() ? -1 : 1;	// we want the highest likelyhood first
-				}
+		Arrays.sort(mAvailableTorsionSet, (ts1, ts2) -> {
+			return Double.compare(ts2.getContribution(), ts1.getContribution());    // we want the highest likelyhood first
 			} );
 		mAvailableTorsionSetIndex = -1;
 		}

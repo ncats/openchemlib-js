@@ -1,8 +1,43 @@
+/*
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
+
 package com.actelion.research.chem;
 
 import com.actelion.research.chem.descriptor.DescriptorHelper;
 
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 
 public class StructureSearchSpecification implements Serializable {
     static final long serialVersionUID = 0x20120402;
@@ -17,7 +52,8 @@ public class StructureSearchSpecification implements Serializable {
 	public static final int TYPE_TAUTOMER_NO_STEREO	= 0x000006;
 	public static final int TYPE_BACKBONE_NO_STEREO	= 0x000007;
 
-	public static final int MODE_LARGEST_FRAGMENT_ONLY		= 0x000100;
+	public static final int MODE_LARGEST_FRAGMENT_ONLY	= 0x000100;
+	public static final int MODE_SINGLE_MATCH_ONLY = 0x000200;
 
 	private int mSearchType;
 	private byte[][] mIDCode;
@@ -143,14 +179,34 @@ public class StructureSearchSpecification implements Serializable {
 		return (mSearchType & MODE_LARGEST_FRAGMENT_ONLY) != 0;
 		}
 
+	public boolean isSingleMatchOnly() {
+		return (mSearchType & MODE_SINGLE_MATCH_ONLY) != 0;
+	}
+
 	public void removeDescriptors() {
 		mDescriptor = null;
 		}
 
+	/**
+	 *
+	 * @param b
+	 */
 	public void setLargestFragmentOnly(boolean b) {
 		mSearchType &= ~MODE_LARGEST_FRAGMENT_ONLY;
 		if (b)
 			mSearchType |= MODE_LARGEST_FRAGMENT_ONLY;
+		}
+
+	/**
+	 * In case of a substructure search, as default a molecule is considered a match if the query
+	 * structure is found once or multiple times. To consider only single matches a match, call this
+	 * method with argument true.
+	 * @param b
+	 */
+	public void setSingleMatchOnly(boolean b) {
+		mSearchType &= ~MODE_SINGLE_MATCH_ONLY;
+		if (b)
+			mSearchType |= MODE_SINGLE_MATCH_ONLY;
 		}
 
 	public String getDescriptorShortName() {
@@ -199,7 +255,7 @@ public class StructureSearchSpecification implements Serializable {
 						  + (((mSearchType & MODE_LARGEST_FRAGMENT_ONLY) != 0) ? "/largestFragmentOnly":"");
 
 		return "type:"+typeString
-			 + (mIDCode==null?" idcodes:null":mIDCode.length==1?" idcode:"+(mIDCode[0]==null?"null":new String(mIDCode[0])):" idcodeCount:"+mIDCode.length)
+			 + (mIDCode==null?" idcodes:null":mIDCode.length==1?" idcode:"+(mIDCode[0]==null?"null":new String(mIDCode[0], StandardCharsets.UTF_8)):" idcodeCount:"+mIDCode.length)
 			 + (mDescriptor==null?" descriptors:null":" descriptorCount:"+mDescriptor.length);
 		}
 	}

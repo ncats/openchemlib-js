@@ -1,0 +1,57 @@
+name: Node.js CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Install dependencies
+        run: npm ci
+      - name: Run ESLint
+        run: npm run eslint
+      - name: Run Prettier
+        run: npm run prettier
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Install GWT
+        run: ./scripts/get-gwt.sh
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Build OCL
+        run: npm run build
+      - name: Run tests
+        run: npm run test-only
+      - name: Run debug build
+        if: failure()
+        run: npm run build-debug-full
+      - name: Upload debug build and logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-build-${{ matrix.node-version }}
+          path: |
+            dist/openchemlib-full.pretty.js
+            compile-full.log

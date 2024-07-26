@@ -1,13 +1,27 @@
 /*
- * @(#)TorsionSetStrategy.java
+ * Copyright 2013-2020 Thomas Sander, openmolecules.org
  *
- * Copyright 2013 openmolecules.org, Inc. All Rights Reserved.
- * 
- * NOTICE: All information contained herein is, and remains the property
- * of openmolecules.org.  The intellectual and technical concepts contained
- * herein are proprietary to openmolecules.org.
- * Actelion Pharmaceuticals Ltd. is granted a non-exclusive, non-transferable
- * and timely unlimited usage license.
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @author Thomas Sander
  */
@@ -37,39 +51,35 @@ import java.util.Comparator;
  * whether and how serious atom collisions occurred.
  */
 public abstract class TorsionSetStrategy {
-	private static final long[] BITS = { 0x00l, 0x01l, 0x03l, 0x07l, 0x0fl, 0x1fl, 0x3fl, 0x7fl };
 	private static final int MAX_TOTAL_COUNT = 10000;   // maximum of distinct torsion sets to be checked
 
-	// Slightly colliding torsion sets, which are initially not considered acceptable, are collected in a cache.
-	// After SECOND_CHOICE_START_INDEX torsion sets have been generated we start tolerating such torsion sets.
-	// From that index to MAX_TOTAL_COUNT we linearly increase a collision tolerance value below which a
-	// torsion set is considered acceptable. Thus, from SECOND_CHOICE_START_INDEX we check the cache, whether
-	// it contains a tolerable torsion set before we generate a new one.
+	// The ConformerGenerator repeatedly requests new TorsionSets from the TorsionSetStrategy. It checks any
+	// returned TorsionSet for atom collisions: If a TorsionSet's collision strain is smaller than the lowest
+	// previously seen strain plus SECOND_CHOICE_TOLERANCE, then a conformer is constructed from the TorsionSet.
+	// Independent of whether a conformer was built, the ConformerGenerator returns the previous torsion set
+	// when requesting a new one.
+	// If a returned TorsionSet was not used to build a conformer, but has a strain lower than MAX_COLLISION_INTENSITY,
+	// then it is cached by the TorsionSetStrategy as a second choice for later.
+	// TorsionSets with a strain higher than SECOND_CHOICE_TOLERANCE are analyzed by the TorsionSetStrategy for
+	// collisions and elimination rules are derived for the future generation of new torsion sets.
+	// When no more TorsionSet can be created, the second choice TorsionSets are returned with increasing
+	// collision strain. Of those TorsionSets with strains higher than MAX_COLLISION_INTENSITY, the best is kept.
+	// If no acceptable TorsionSets could be created then the ConformerGenerator may choose to use the best unacceptable one.
 
-	// divisor to calculate count index from which to start collecting second choice conformers
-	private static final int SECOND_CHOICE_START_FRACTION = 5;
+	public static final double COLLISION_STRAIN_FOR_FACTOR_10 = 1.36;   // Collision strains are supposed to be on a kcal/mol scale
+	public static final double MAX_COLLISION_STRAIN = 6;
+	private static final double MAX_LOWEST_COLLISION_STRAIN = 3;
+	private static final double SECOND_CHOICE_TOLERANCE = 3;
 
-	// We determine the lowest collision intensity of all conformers before starting to include
-	// second choice conformers. Unavoidable inherent molecule strain may cause this lowest value
-	// to be above 0.0, e.g. in a,a'-substituted naphtalines. This low value may not be higher than
-	// MAX_COLLISION_INTENSITY_BASE.
-	private static final double MAX_COLLISION_INTENSITY_BASE = 0.5; // sum of squares of distances below VDW radii
-
-	// tolerated maximum collision intensity difference on top of the lowest collision intensity found
-	private static final double SECOND_CHOICE_MAX_TOLERANCE = 0.2; // sum of squares of distances below VDW radii
-
-	public static final double MAX_ALLOWED_COLLISION_INTENSITY = MAX_COLLISION_INTENSITY_BASE + SECOND_CHOICE_MAX_TOLERANCE;
-
+	protected ConformerGenerator mConformerGenerator;
 	protected RotatableBond[] mRotatableBond;
-	protected Rigid3DFragment[] mRigidFragment;
-	private int mFragmentCount,mEncodingLongCount,mCollisionCount,mTotalCount,mMaxTotalCount,mPermutationCount;
+	protected RigidFragment[] mRigidFragment;
+	private TorsionSetEncoder mTorsionSetEncoder;
+	private int mFragmentCount,mCollisionCount,mMaxTotalCount,mPermutationCount,mSuccessCount;
 	private boolean mUsingSecondChoices;
 	private int[][][] mBondsBetweenFragments;
 	private int[][] mConnFragmentNo;
 	private int[][] mConnRotatableBondNo;
-	private int[] mEncodingBitCount;
-	private int[] mEncodingBitShift;
-	private int[] mEncodingLongIndex;
 	private int[] mGraphFragment;
 	private int[] mGraphBond;
 	private int[] mGraphParent;
@@ -77,11 +87,14 @@ public abstract class TorsionSetStrategy {
 	private double mLowestCollisionStrain;
 	private UniqueList<TorsionSet> mTorsionSetList;
 	private SortedList<TorsionSet> mSecondChoiceList;
-	private ArrayList<TorsionSetEliminationRule> mEliminationRuleList;
+	private SortedList<TorsionSetWithEliminationRuleStrain> mStrainedTorsionSetCache;
+	private TorsionSet mBestUnacceptableTorsionSet;
 
-	public TorsionSetStrategy(RotatableBond[] rotatableBond, Rigid3DFragment[] fragment) {
-		mRotatableBond = rotatableBond;
-		mRigidFragment = fragment;
+	public TorsionSetStrategy(ConformerGenerator conformerGenerator) {
+		mConformerGenerator = conformerGenerator;
+		mRotatableBond = conformerGenerator.getRotatableBonds();
+		mRigidFragment = conformerGenerator.getRigidFragments();
+		mTorsionSetEncoder = new TorsionSetEncoder(mRigidFragment, mRotatableBond);
 
 		// create arrays of neighbor fragment no's
 		mFragmentCount = 0;
@@ -124,61 +137,20 @@ public abstract class TorsionSetStrategy {
 			}
 
 		mPermutationCount = 1;
-		mEncodingBitCount = new int[mRotatableBond.length+mRigidFragment.length];
-		mEncodingBitShift = new int[mRotatableBond.length+mRigidFragment.length];
-		mEncodingLongIndex = new int[mRotatableBond.length+mRigidFragment.length];
-		int bitCount = 0;
-		int longIndex = 0;
-		int index = 0;
-		for (int i=0; i<mRotatableBond.length; i++) {
-			mPermutationCount *= mRotatableBond[i].getTorsionCount();
-			int bits = neededBits(mRotatableBond[i].getTorsionCount());
-			if (bitCount + bits <= 64) {
-				mEncodingBitShift[index] = bitCount;
-				bitCount += bits;
-				}
-			else {
-				longIndex++;
-				mEncodingBitShift[index] = 0;
-				bitCount = 0;
-				}
-			mEncodingBitCount[index] = bits;
-			mEncodingLongIndex[index] = longIndex;
-			index++;
-			}
-		for (int i=0; i<mRigidFragment.length; i++) {
-			mPermutationCount *= mRigidFragment[i].getConformerCount();
-			int bits = neededBits(mRigidFragment[i].getConformerCount());
-			if (bitCount + bits <= 64) {
-				mEncodingBitShift[index] = bitCount;
-				bitCount += bits;
-				}
-			else {
-				longIndex++;
-				mEncodingBitShift[index] = 0;
-				bitCount = 0;
-				}
-			mEncodingBitCount[index] = bits;
-			mEncodingLongIndex[index] = longIndex;
-			index++;
-			}
-		mEncodingLongCount = longIndex+1;
+
+		for (RotatableBond rb:mRotatableBond)
+			mPermutationCount *= rb.getTorsionCount();
+		for (RigidFragment rf:mRigidFragment)
+			mPermutationCount *= rf.getConformerCount();
 		if (mPermutationCount <= 0)
 			mPermutationCount = Integer.MAX_VALUE;
 
-		mEliminationRuleList = new ArrayList<TorsionSetEliminationRule>();
-
-		mTorsionSetList = new UniqueList<TorsionSet>();
-		mSecondChoiceList = new SortedList<TorsionSet>(new Comparator<TorsionSet>() {
-			@Override
-			public int compare(TorsionSet ts1, TorsionSet ts2) {
-				return ts1.getCollisionIntensitySum() < ts2.getCollisionIntensitySum() ? -1
-					 : ts1.getCollisionIntensitySum() > ts2.getCollisionIntensitySum() ? 1 : 0;
-			}
-		});
+		mTorsionSetList = new UniqueList<>();
+		mSecondChoiceList = new SortedList<>(Comparator.comparingDouble(ts -> ((TorsionSet)ts).getCollisionStrainSum()));
+		mStrainedTorsionSetCache = new SortedList<>();
 		mCollisionCount = 0;
-		mTotalCount = 0;
-		mLowestCollisionStrain = MAX_COLLISION_INTENSITY_BASE;
+		mSuccessCount = 0;
+		mLowestCollisionStrain = MAX_LOWEST_COLLISION_STRAIN;
 		mUsingSecondChoices = false;
 		mMaxTotalCount = Math.min(MAX_TOTAL_COUNT, mPermutationCount);
 		}
@@ -189,16 +161,6 @@ public abstract class TorsionSetStrategy {
 
 	public void setMaxTotalCount(int maxTotalCount) {
 		mMaxTotalCount = Math.min(maxTotalCount, mPermutationCount);
-		}
-
-	private int neededBits(int count) {
-		int bits = 0;
-		int maxIndex = count-1;
-		while (maxIndex > 0) {
-			maxIndex >>= 1;
-			bits++;
-			}
-		return bits;
 		}
 
 	/*	public UniqueList<TorsionSet> getTorsionSetList() {
@@ -224,31 +186,27 @@ public abstract class TorsionSetStrategy {
 	 * @return number of generated torsion sets till now
 	 */
 	public int getTorsionSetCount() {
-		return mTotalCount;
+		return mTorsionSetList.size();
 		}
+
+	public TorsionSetEncoder getTorsionSetEncoder() {
+		return mTorsionSetEncoder;
+	}
 
 	/**
 	 * Creates a new TorsionSet object from a torsion index array.
-	 * An An overall likelyhood of the new torsion set is calculated
-	 * by multiplying individual likelyhoods of the specific torsion angles
+	 * An overall likelihood of the new torsion set is calculated
+	 * by multiplying individual likelihoods of the specific torsion angles
 	 * of all underlying RotatableBonds.
 	 * @param torsionIndex
 	 * @param conformerIndex null or conformer index for every rigid fragment
 	 * @return
 	 */
 	protected TorsionSet createTorsionSet(int[] torsionIndex, int[] conformerIndex) {
-		double likelyhood = 1.0;
-		for (int j=0; j<mRotatableBond.length; j++)
-			likelyhood *= mRotatableBond[j].getTorsionLikelyhood(torsionIndex[j]);
-		if (conformerIndex != null)
-			for (int j=0; j<mRigidFragment.length; j++)
-				likelyhood *= mRigidFragment[j].getConformerLikelyhood(conformerIndex[j]);
-		return new TorsionSet(torsionIndex, conformerIndex, mEncodingBitShift, mEncodingLongIndex, likelyhood);
+		TorsionSet ts = new TorsionSet(torsionIndex, conformerIndex, mTorsionSetEncoder);
+		ts.setContribution(getContribution(ts));
+		return ts;
 		}
-
-/*	protected TorsionSet createTorsionSet(int[] torsionIndex, double likelyhood) {
-		return new TorsionSet(torsionIndex, mEncodingBitShift, mEncodingLongIndex, likelyhood);
-		}	*/
 
 	protected boolean isNewTorsionSet(TorsionSet ts) {
 		return !mTorsionSetList.contains(ts);
@@ -261,64 +219,101 @@ public abstract class TorsionSetStrategy {
 	 * collision intensity sum must have been reported to the torsion set.
 	 * Torsion sets returned by this method are guaranteed to avoid torsion sequences that
 	 * had previously caused collisions.
-	 * To achieve this goal, TorsionSetStragegy repeatedly requests new TorsionSets
+	 * To achieve this goal, TorsionSetStrategy repeatedly requests new TorsionSets
 	 * from the strategy implementation and returns the first set that is not in conflict
 	 * with the collision rules already collected or until no further set exists.
 	 * @param previousTorsionSet delivered by this method (or null if it is the first call)
 	 * @return torsion index set that adheres to already known collision rules
 	 */
-	public final TorsionSet getNextTorsionSet(TorsionSet previousTorsionSet) {
+	public final TorsionSet getNextTorsionSet(TorsionSet previousTorsionSet, ConformerSetDiagnostics diagnostics) {
+		if (previousTorsionSet != null && previousTorsionSet.isUsed())
+			mSuccessCount++;
+
 		// Some molecules have unavoidable internal strains,
 		// which we try to determine until we start returning second choices.
 		if (previousTorsionSet != null
-		 && mLowestCollisionStrain > previousTorsionSet.getCollisionIntensitySum())
-			mLowestCollisionStrain = previousTorsionSet.getCollisionIntensitySum();
+		 && mLowestCollisionStrain > previousTorsionSet.getCollisionStrainSum())
+			mLowestCollisionStrain = previousTorsionSet.getCollisionStrainSum();
 
+		// If we switched to second choices then return second choices until no one is left.
 		if (mUsingSecondChoices)
-			return getRandomSecondChoice();
+			return getBestSecondChoice();
 
-		if (mTotalCount == mMaxTotalCount) {
-			if (ConformerGenerator.PRINT_EXIT_REASON)
-				System.out.println("maxTotal("+mMaxTotalCount+") reached (1); collisions:"+mCollisionCount+" eliminationRules:"+mEliminationRuleList.size());
+		if (mTorsionSetList.size() == mMaxTotalCount) {
+			if (diagnostics != null)
+				diagnostics.setExitReason("maxTotal(" + mMaxTotalCount + ") reached A; collisions:" + mCollisionCount);
+
 			return null;
 			}
 
+		// - Learn from the collisions of the previous torsion set, if the strain is high enough to potentially be a problem later.
+		// - If collision is tolerable, keep the torsion set among second choices for later
 		if (previousTorsionSet != null
-		 && !previousTorsionSet.isUsed()	// if it was already used, then the collision was considered tolerable by the ConformerGenerator
-		 && previousTorsionSet.getCollisionIntensitySum() != 0) {
+		 && previousTorsionSet.getCollisionStrainSum() > SECOND_CHOICE_TOLERANCE) {
+
+			BaseConformer baseConformer = (diagnostics != null) ? mConformerGenerator.getBaseConformer(previousTorsionSet.getConformerIndexes()) : null;
+			ArrayList<TorsionSetEliminationRule> eliminationRules = (diagnostics != null) ? baseConformer.getEliminationRules() : null;
+			int elimRuleCount = (diagnostics == null) ? 0 : eliminationRules.size();
+
 			processCollisions(previousTorsionSet);
 
-			if (previousTorsionSet.getCollisionIntensitySum() < mLowestCollisionStrain + SECOND_CHOICE_MAX_TOLERANCE)
-				mSecondChoiceList.add(previousTorsionSet);
+			if (diagnostics != null)
+				for (int i=elimRuleCount; i<eliminationRules.size(); i++)
+					diagnostics.get(previousTorsionSet).addEliminationRule(mTorsionSetEncoder.createRuleString(eliminationRules.get(i), baseConformer));
+
+			if (!previousTorsionSet.isUsed()) {
+				if (previousTorsionSet.getCollisionStrainSum() <MAX_COLLISION_STRAIN)
+					mSecondChoiceList.add(previousTorsionSet);
+				else if (mBestUnacceptableTorsionSet == null
+					  || mBestUnacceptableTorsionSet.getCollisionStrainSum() > previousTorsionSet.getCollisionStrainSum())
+					mBestUnacceptableTorsionSet = previousTorsionSet;
+				}
 
 			mCollisionCount++;
 			}
 
 		double tolerance = calculateCollisionTolerance();
 
-		TorsionSet ts = getSecondChoiceTorsionSet(tolerance);
-		if (ts != null)
-			return ts;
+		// Calculate a tolerable collision threshold that increases with the number of returned torsion sets.
+		// And return a tolerable torsion set, if we have one in the list.
+		// Note: Second choice torsion sets have valid collision sums
+/* Current calculate collision tolerance just get smaller over time. Thus, it is impossible that previous second choice
+   sets become now first choice. If we introduce an increase of the tolerance over time, we should uncomment this.
+		TorsionSet oldTS = getBestSecondChoiceIfBelow(tolerance);
+		if (oldTS != null)
+			return oldTS;
+*/
 
-		ts = createTorsionSet(previousTorsionSet);
+		TorsionSet ts = getTorsionSet(tolerance, previousTorsionSet);
 
-		while (ts != null && matchesEliminationRule(ts, tolerance)) {
+		while (ts != null) {
+			// With the current knowledge of elimination rule, check if we can rule out the torsion set because of unacceptable strain
+			double collisionStrain = calculateKnownCollisionStrainSum(ts, mConformerGenerator.getBaseConformer(ts.getConformerIndexes()).getEliminationRules());
+			if (collisionStrain < tolerance)
+				break;
+
+			if (collisionStrain <MAX_COLLISION_STRAIN)
+				mStrainedTorsionSetCache.add(new TorsionSetWithEliminationRuleStrain(ts, collisionStrain));
+
 			mCollisionCount++;
-			mTotalCount++;
 			mTorsionSetList.add(ts);
 
-			if (mTotalCount == mMaxTotalCount) {
-				if (ConformerGenerator.PRINT_EXIT_REASON)
-					System.out.println("maxTotal(\"+mMaxTotalCount+\") reached (2); collisions:"+mCollisionCount+" eliminationRules:"+mEliminationRuleList.size());
+			if (mTorsionSetList.size() == mMaxTotalCount) {
+				if (diagnostics != null)
+					diagnostics.setExitReason("maxTotal(\"+mMaxTotalCount+\") reached B; collisions:"+mCollisionCount);
 				return null;
 				}
 
 			tolerance = calculateCollisionTolerance();
-			ts = getSecondChoiceTorsionSet(tolerance);
-			if (ts != null)
-				return ts;
 
-			ts = createTorsionSet(ts);
+/* Current calculate collision tolerance just get smaller over time. Thus, it is impossible that previous second choice
+   sets become now first choice. If we introduce an increase of the tolerance over time, we should uncomment this.
+			TorsionSet oldTS = getBestSecondChoiceIfBelow(tolerance);
+			if (oldTS != null)
+				return oldTS;
+*/
+
+			ts = getTorsionSet(tolerance, ts);
 			}
 
 		if (ts == null) {
@@ -327,33 +322,49 @@ public abstract class TorsionSetStrategy {
 
 				// remove all second choices beyond smallest found collision intensity plus tolerance
 				while (mSecondChoiceList.size() != 0
-					&& mSecondChoiceList.get(mSecondChoiceList.size()-1).getCollisionIntensitySum() > mLowestCollisionStrain + SECOND_CHOICE_MAX_TOLERANCE)
+					&& mSecondChoiceList.get(mSecondChoiceList.size()-1).getCollisionStrainSum() > mLowestCollisionStrain + SECOND_CHOICE_TOLERANCE)
 					mSecondChoiceList.remove(mSecondChoiceList.size()-1);
 
-				ts = getRandomSecondChoice();
+				ts = getBestSecondChoice();
 				}
 
-			if (ts == null && ConformerGenerator.PRINT_EXIT_REASON)
-				System.out.println("Inner strategy stop criterion hit");
+			if (ts == null && diagnostics != null)
+				diagnostics.setExitReason("Inner strategy stop criterion hit");
 
 			return ts;
 			}
 
-		mTotalCount++;
 		mTorsionSetList.add(ts);
-
-		if (ConformerGenerator.PRINT_DEBUG_INDEXES)
-			System.out.print("total:"+mTotalCount+" ");
 
 		return ts;
 		}
 
-	private TorsionSet getSecondChoiceTorsionSet(double tolerance) {
-		if (tolerance == 0.0)
+	/**
+	 * If we have an earlier created unused torsion set in the cache, return that.
+	 * Otherwise creates a new torsion set using the strategy implementation.
+	 * @param tolerance
+	 * @param previousTorsionSet
+	 * @return cached or new torsion set
+	 */
+	private TorsionSet getTorsionSet(double tolerance, TorsionSet previousTorsionSet) {
+		// If we have an earlier generated torsion set elimination rules at time of creation
+		// didn't indicate a higher strain than tolerance, the return that...
+		if (mStrainedTorsionSetCache.size() != 0) {
+			TorsionSetWithEliminationRuleStrain tswers = mStrainedTorsionSetCache.get(0);
+			if (tswers.getRuleStrain() < tolerance) {
+				mStrainedTorsionSetCache.remove(0);
+				return tswers.getTorsionSet();
+				}
+			}
+
+		return createTorsionSet(previousTorsionSet);
+		}
+
+	private TorsionSet getBestSecondChoiceIfBelow(double tolerance) {
+		if (mSecondChoiceList.size() == 0 || tolerance == 0.0)
 			return null;
 
-		if (mSecondChoiceList.size() == 0
-		 || mSecondChoiceList.get(0).getCollisionIntensitySum() > tolerance)
+		if (mSecondChoiceList.get(0).getCollisionStrainSum() > tolerance)
 			return null;
 
 		TorsionSet ts = mSecondChoiceList.get(0);
@@ -361,12 +372,13 @@ public abstract class TorsionSetStrategy {
 		return ts;
 		}
 
-	private TorsionSet getRandomSecondChoice() {
+	private TorsionSet getBestSecondChoice() {
 		if (mSecondChoiceList.size() == 0)
 			return null;
 
 		int index = (this instanceof TorsionSetStrategyRandom) ?
-				((TorsionSetStrategyRandom)this).getRandom().nextInt(mSecondChoiceList.size()) : 0;
+					((TorsionSetStrategyRandom)this).getRandom().nextInt(mSecondChoiceList.size()) : 0;
+
 		TorsionSet ts = mSecondChoiceList.get(index);
 		mSecondChoiceList.remove(index);
 		return ts;
@@ -378,16 +390,7 @@ public abstract class TorsionSetStrategy {
 	 * @return
 	 */
 	public TorsionSet getBestCollidingTorsionIndexes() {
-		double bestCollisionIntensity = Double.MAX_VALUE;
-		TorsionSet bestTorsionSet = null;
-		for (int i=0; i<mTorsionSetList.size(); i++) {
-			TorsionSet ts = mTorsionSetList.get(i);
-			if (bestCollisionIntensity > ts.getCollisionIntensitySum()) {
-				bestCollisionIntensity = ts.getCollisionIntensitySum();
-				bestTorsionSet = ts;
-				}
-			}
-		return bestTorsionSet;
+		return mBestUnacceptableTorsionSet;
 		}
 
 	/**
@@ -404,42 +407,39 @@ public abstract class TorsionSetStrategy {
 	/**
 	 * Must be called if the torsion indexes delivered with getNextTorsionIndexes()
 	 * caused an atom collision.
-	 * Completes a dictionary of bond sequences with specific torsions that cause
+	 * Completes a dictionary of bond sequences with specific torsions that causes
 	 * atom collisions. Depending on the strategy implementation, this disctionary
 	 * is taken into account, when creating new torsion sets.
 	 */
 	private void processCollisions(TorsionSet torsionSet) {
-		double[][] collisionIntensityMatrix = torsionSet.getCollisionIntensityMatrix();
+		double[][] collisionIntensityMatrix = torsionSet.getCollisionStrainMatrix();
 		int[] torsionIndex = torsionSet.getTorsionIndexes();
 		for (int f1=1; f1<collisionIntensityMatrix.length; f1++) {
 			if (collisionIntensityMatrix[f1] != null) {
 				for (int f2=0; f2<f1; f2++) {
 					if (collisionIntensityMatrix[f1][f2] != 0f) {
 						int[] rotatableBondIndex = mBondsBetweenFragments[f1][f2];
-						long[] mask = new long[mEncodingLongCount];
-						long[] data = new long[mEncodingLongCount];
-						for (int i=0; i<rotatableBondIndex.length; i++) {
-							int rb = rotatableBondIndex[i];
-							data[mEncodingLongIndex[rb]] += (torsionIndex[rb] << mEncodingBitShift[rb]);
-							mask[mEncodingLongIndex[rb]] += (BITS[mEncodingBitCount[rb]] << mEncodingBitShift[rb]);
-							}
+						TorsionSetEliminationRule rule = new TorsionSetEliminationRule(torsionIndex,
+								rotatableBondIndex, collisionIntensityMatrix[f1][f2], mTorsionSetEncoder);
 						boolean isCovered = false;
 						ArrayList<TorsionSetEliminationRule> obsoleteList = null;
-						for (TorsionSetEliminationRule er:mEliminationRuleList) {
-							if (er.isCovered(mask, data)) {
+						ArrayList<TorsionSetEliminationRule> currentList = mConformerGenerator.getBaseConformer(
+								torsionSet.getConformerIndexes()).getEliminationRules();
+						for (TorsionSetEliminationRule er:currentList) {
+							if (er.isCovered(rule)) {
 								isCovered = true;
 								break;
 								}
-							if (er.isMoreGeneral(mask, data)) {
+							if (er.isMoreGeneral(rule)) {
 								if (obsoleteList == null)
-									obsoleteList = new ArrayList<TorsionSetEliminationRule>();
+									obsoleteList = new ArrayList<>();
 								obsoleteList.add(er);
 								}
 							}
 						if (!isCovered) {
 							if (obsoleteList != null)
-								mEliminationRuleList.removeAll(obsoleteList);
-							mEliminationRuleList.add(new TorsionSetEliminationRule(mask, data, collisionIntensityMatrix[f1][f2]));
+								currentList.removeAll(obsoleteList);
+							currentList.add(rule);
 //							eliminateTorsionSets(mask, data);
 // currently validity checking is done in getNextTorsionIndexes() against the list of elimination rules
 							}
@@ -461,14 +461,15 @@ public abstract class TorsionSetStrategy {
 	 */
 	protected double[] getBondAndFragmentCollisionIntensities(TorsionSet collidingTorsionSet) {
 		double[] collisionIntensity = new double[mRotatableBond.length+mRigidFragment.length];
-		for (TorsionSetEliminationRule er:mEliminationRuleList) {
-			if (collidingTorsionSet.matches(er, 0.0)) {
-				long[] mask = er.getMask();
+		ArrayList<TorsionSetEliminationRule> elimRules = mConformerGenerator.getBaseConformer(
+				collidingTorsionSet.getConformerIndexes()).getEliminationRules();
+
+		for (TorsionSetEliminationRule er:elimRules)
+			if (collidingTorsionSet.getCollisionStrainIfMatches(er) != 0)
 				for (int i=0; i<collisionIntensity.length; i++)
-					if ((mask[mEncodingLongIndex[i]] & (1L << mEncodingBitShift[i])) != 0L)
+					if (mTorsionSetEncoder.isMaskSet(er, i))
 						collisionIntensity[i] += er.getCollisionIntensity();
-				}
-			}
+
 		return collisionIntensity;
 		}
 
@@ -491,26 +492,24 @@ public abstract class TorsionSetStrategy {
 	 */
 	public double getContribution(TorsionSet torsionSet) {
 		double likelyhood = 1.0;
-		for (int i=0; i<mRotatableBond.length; i++)
-			likelyhood *= mRotatableBond[i].getTorsionLikelyhood(torsionSet.getTorsionIndexes()[i]);
-		for (int i=0; i<mRigidFragment.length; i++)
-			likelyhood *= mRigidFragment[i].getConformerLikelyhood(torsionSet.getConformerIndexes()[i]);
+		for (int rf=0; rf<mRigidFragment.length; rf++)
+			likelyhood *= mRigidFragment[rf].getConformerLikelihood(torsionSet.getConformerIndexes()[rf]);
+		BaseConformer baseConformer = mConformerGenerator.getBaseConformer(torsionSet.getConformerIndexes());
+		for (int rb=0; rb<mRotatableBond.length; rb++)
+			likelyhood *= baseConformer.getTorsionLikelyhood(rb, torsionSet.getTorsionIndexes()[rb]);
 		return likelyhood;
 		}
 
-	private boolean matchesEliminationRule(TorsionSet ts, double tolerance) {
-		for (TorsionSetEliminationRule er:mEliminationRuleList)
-			if (ts.matches(er, tolerance))
-				return true;
-		return false;
+	private double calculateKnownCollisionStrainSum(TorsionSet ts, ArrayList<TorsionSetEliminationRule> elimRules) {
+		double sum = 0.0;
+		for (TorsionSetEliminationRule er:elimRules)
+			sum += ts.getCollisionStrainIfMatches(er);
+
+		return sum;
 		}
 
 	public double calculateCollisionTolerance() {
-		int secondChoiceStartIndex = mMaxTotalCount / SECOND_CHOICE_START_FRACTION;
-		return (mTotalCount <= secondChoiceStartIndex) ? 0.0
-			: mLowestCollisionStrain
-			  + SECOND_CHOICE_MAX_TOLERANCE * (mTotalCount - secondChoiceStartIndex)
-											/ (mMaxTotalCount - secondChoiceStartIndex);
+		return mLowestCollisionStrain + SECOND_CHOICE_TOLERANCE;
 		}
 
 	private int[] getRotatableBondsBetween(int f1, int f2) {
@@ -550,34 +549,4 @@ public abstract class TorsionSetStrategy {
 			}
 		return null;
 		}
-
-	// TODO remove this
-	public String eliminationRuleString(TorsionSetEliminationRule rule)  {
-		StringBuilder sb = new StringBuilder();
- 		int index = 0;
-		for (int i=0; i<mRotatableBond.length; i++) {
-			if (mRotatableBond[i].getTorsionCount() > 1) {
-				long mask = BITS[neededBits(mRotatableBond[i].getTorsionCount())] << mEncodingBitShift[index];
-				if ((rule.getMask()[mEncodingLongIndex[index]] & mask) != 0) {
-					int t = (int)((rule.getData()[mEncodingLongIndex[index]] & mask) >> mEncodingBitShift[index]);
-					sb.append("rb[" + i + "]=" + mRotatableBond[i].getTorsion(t) + "(" + (int)(100 * mRotatableBond[i].getTorsionLikelyhood(t)) + "%) ");
-					}
-				}
-			index++;
-			}
-		for (int i=0; i<mRigidFragment.length; i++) {
-			if (mRigidFragment[i].getConformerCount() > 1) {
-				long mask = BITS[neededBits(mRigidFragment[i].getConformerCount())] << mEncodingBitShift[index];
-				if ((rule.getMask()[mEncodingLongIndex[index]] & mask) != 0) {
-					int t = (int)((rule.getData()[mEncodingLongIndex[index]] & mask) >> mEncodingBitShift[index]);
-					sb.append("f[" + i + "]:(" + (int)(100 * mRigidFragment[i].getConformerLikelyhood(t)) + "%) ");
-					}
-				}
-			index++;
-			}
-		return sb.toString();
-		}
-
-	// TODO remove this
-	public ArrayList<TorsionSetEliminationRule> getEliminationRuleList() { return mEliminationRuleList; }
-}
+	}

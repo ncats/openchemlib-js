@@ -1,20 +1,34 @@
 /*
- * @(#)PlaneRule.java
+ * Copyright 2013-2020 Thomas Sander, openmolecules.org
  *
- * Copyright 2013 openmolecules.org, Inc. All Rights Reserved.
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
  *
- * NOTICE: All information contained herein is, and remains the property
- * of openmolecules.org.  The intellectual and technical concepts contained
- * herein are proprietary to openmolecules.org.
- * Actelion Pharmaceuticals Ltd. is granted a non-exclusive, non-transferable
- * and timely unlimited usage license.
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software without
+ *    specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ * SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @author Thomas Sander
  */
 
 package org.openmolecules.chem.conf.so;
 
-import com.actelion.research.calc.SingularValueDecomposition;
+import com.actelion.research.chem.Coordinates;
 import com.actelion.research.chem.RingCollection;
 import com.actelion.research.chem.StereoMolecule;
 import com.actelion.research.chem.conf.Conformer;
@@ -169,50 +183,18 @@ public class PlaneRule extends ConformationRule {
 
 	@Override
 	public boolean apply(Conformer conformer, double cycleFactor) {
-		double[] cog = new double[3];	// center of gravity
-		for (int i=0; i<mPlaneAtom.length; i++) {
-			cog[0] += conformer.getX(mPlaneAtom[i]);
-			cog[1] += conformer.getY(mPlaneAtom[i]);
-			cog[2] += conformer.getZ(mPlaneAtom[i]);
-			}
-		for (int j=0; j<3; j++)
-			cog[j] /= mPlaneAtom.length;
-
-		double[][] A = new double[mPlaneAtom.length][3];
-		for (int i=0; i<mPlaneAtom.length; i++) {
-			A[i][0] = conformer.getX(mPlaneAtom[i]) - cog[0];
-			A[i][1] = conformer.getY(mPlaneAtom[i]) - cog[1];
-			A[i][2] = conformer.getZ(mPlaneAtom[i]) - cog[2];
-			}
-
-		double[][] squareMatrix = new double[3][3];
-		for (int i=0; i<mPlaneAtom.length; i++)
-			for (int j=0; j<3; j++)
-				for (int k=0; k<3; k++)
-					squareMatrix[j][k] += A[i][j] * A[i][k];
-
-		SingularValueDecomposition svd = new SingularValueDecomposition(squareMatrix, null, null);
-		double[] S = svd.getSingularValues();
-		int minIndex = 0;
-		for (int i=1; i<3; i++)
-			if (S[i] < S[minIndex])
-				minIndex = i;
-
-		double[][] U = svd.getU();
-		double[] n = new double[3];	// normal vector of fitted plane
-		for (int i=0; i<3; i++)
-			n[i] = U[i][minIndex];
+		Coordinates cog = new Coordinates();
+		Coordinates n = new Coordinates();
+		double[][] coords = new double[mPlaneAtom.length][3];
+		ConformationRule.calculateNearestPlane(conformer, mPlaneAtom, cog, n, coords);
 
 		for (int i=0; i<mAtom.length; i++) {
-			double distance = -(n[0]*(conformer.getX(mAtom[i]) - cog[0])
-							  + n[1]*(conformer.getY(mAtom[i]) - cog[1])
-							  + n[2]*(conformer.getZ(mAtom[i]) - cog[2]));
-			moveGroup(conformer, mAtom[i], mAtom, 0.5*distance*cycleFactor*n[0],
-												  0.5*distance*cycleFactor*n[1],
-												  0.5*distance*cycleFactor*n[2]);
-//			moveAtom(conformer, mAtom[i], 0.5f*distance*cycleFactor*n[0],
-//										  0.5f*distance*cycleFactor*n[1],
-//										  0.5f*distance*cycleFactor*n[2]);
+			double distance = -(n.x*(conformer.getX(mAtom[i]) - cog.x)
+							  + n.y*(conformer.getY(mAtom[i]) - cog.y)
+							  + n.z*(conformer.getZ(mAtom[i]) - cog.z));
+			moveGroup(conformer, mAtom[i], mAtom, 0.5 * distance * cycleFactor * n.x,
+												  0.5 * distance * cycleFactor * n.y,
+												  0.5 * distance * cycleFactor * n.z);
 			}
 
 		return true;
@@ -220,45 +202,17 @@ public class PlaneRule extends ConformationRule {
 
 	@Override
 	public double addStrain(Conformer conformer, double[] atomStrain) {
-		double[] cog = new double[3];	// center of gravity
-		for (int i=0; i<mAtom.length; i++) {
-			cog[0] += conformer.getX(mAtom[i]);
-			cog[1] += conformer.getY(mAtom[i]);
-			cog[2] += conformer.getZ(mAtom[i]);
-			}
-		for (int j=0; j<3; j++)
-			cog[j] /= mAtom.length;
-
-		double[][] A = new double[mAtom.length][3];
-		for (int i=0; i<mAtom.length; i++) {
-			A[i][0] = conformer.getX(mAtom[i]) - cog[0];
-			A[i][1] = conformer.getY(mAtom[i]) - cog[1];
-			A[i][2] = conformer.getZ(mAtom[i]) - cog[2];
-			}
-
-		double[][] squareMatrix = new double[3][3];
-		for (int i=0; i<mAtom.length; i++)
-			for (int j=0; j<3; j++)
-				for (int k=0; k<3; k++)
-					squareMatrix[j][k] += A[i][j] * A[i][k];
-
-		SingularValueDecomposition svd = new SingularValueDecomposition(squareMatrix, null, null);
-		double[] S = svd.getSingularValues();
-		int minIndex = 0;
-		for (int i=1; i<3; i++)
-			if (S[i] < S[minIndex])
-				minIndex = i;
-
-		double[][] U = svd.getU();
-		double[] n = new double[3];	// normal vector of fitted plane
-		for (int i=0; i<3; i++)
-			n[i] = U[i][minIndex];
+		Coordinates cog = new Coordinates();
+		Coordinates n = new Coordinates();
+		double[][] coords = new double[mAtom.length][3];
+		ConformationRule.calculateNearestPlane(conformer, mAtom, cog, n, coords);
 
 		double totalStrain = 0;
 		for (int i=0; i<mAtom.length; i++) {
-			double distance = -(n[0]*A[i][0] + n[1]*A[i][1] + n[2]*A[i][2]);
-			double panalty = distance*distance;
-			atomStrain[mAtom[i]] += panalty;
+			double distance = -(n.x*coords[i][0] + n.y*coords[i][1] + n.z*coords[i][2]);
+			double panalty = 20.0 * distance*distance;
+			if (atomStrain != null)
+				atomStrain[mAtom[i]] += panalty;
 			totalStrain += panalty;
 			}
 

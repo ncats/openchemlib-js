@@ -1,8 +1,8 @@
 'use strict';
 
-const fs = require('fs');
+const fs = require('node:fs');
 
-const Molecule = require('../minimal').Molecule;
+const { Molecule } = require('../minimal');
 
 describe('from and to SMILES', () => {
   it.each(['C', 'COCOC', 'c1cc2cccc3c4cccc5cccc(c(c1)c23)c54'])(
@@ -16,7 +16,7 @@ describe('from and to SMILES', () => {
   );
 
   it('should throw on syntax error', () => {
-    expect(function() {
+    expect(() => {
       Molecule.fromSmiles('ABC');
     }).toThrow(/SmilesParser: unknown element label found/);
   });
@@ -27,18 +27,43 @@ describe('from and to SMILES', () => {
     ['[CH3][CH2][OH]', 'CCO'],
     ['C-C-O', 'CCO'],
     ['C(O)C', 'CCO'],
-    // Next examples don't work rigth now. See https://github.com/Actelion/openchemlib/issues/35
-    // ['OC(=O)C(Br)(Cl)N', 'NC(Cl)(Br)C(=O)O'],
-    // ['ClC(Br)(N)C(=O)O', 'NC(Cl)(Br)C(=O)O'],
-    // ['O=C(O)C(N)(Br)Cl', 'NC(Cl)(Br)C(=O)O']
+    ['OC(=O)C(Br)(Cl)N', 'NC(C(O)=O)(Cl)Br'],
+    ['ClC(Br)(N)C(=O)O', 'NC(C(O)=O)(Cl)Br'],
+    ['O=C(O)C(N)(Br)Cl', 'NC(C(O)=O)(Cl)Br'],
   ])('toIsomericSmiles: %s', (input, output) => {
     const mol = Molecule.fromSmiles(input);
     expect(mol.toIsomericSmiles()).toBe(output);
   });
+
+  it('smiles options', () => {
+    const mol = Molecule.fromSmiles('C1=CC=CC=C1');
+    expect(mol.toSmiles()).toBe('C1(=CC=CC=C1)');
+    expect(mol.toIsomericSmiles()).toBe('c1ccccc1');
+    expect(mol.toIsomericSmiles({ kekulizedOutput: true })).toBe('C1=CC=CC=C1');
+    expect(mol.toIsomericSmiles({ createSmarts: true })).toBe('c1ccccc1');
+    mol.setAtomMapNo(0, 1);
+    expect(mol.toIsomericSmiles({ includeMapping: true })).toBe(
+      'c1cc[cH:1]cc1',
+    );
+
+    const fragment = Molecule.fromSmiles('C1=CC=CC=C1C');
+    fragment.setFragment(true);
+    fragment.setAtomicNo(6, 1);
+    expect(fragment.toIsomericSmiles({ createSmarts: true })).toBe(
+      'c1cc[c;!H0]cc1',
+    );
+  });
 });
 
-describe('Molecule', function() {
-  it('medley', function() {
+it('smarts options', () => {
+  const fragment = Molecule.fromSmiles('C1=CC=CC=C1C');
+  fragment.setFragment(true);
+  fragment.setAtomicNo(6, 1);
+  expect(fragment.toSmarts()).toBe('c1cc[c;!H0]cc1');
+});
+
+describe('Molecule', () => {
+  it('medley', () => {
     const idcode =
       'enYXNH@MHDAELem`OCIILdhhdiheCDlieKDdefndZRVVjjfjjfjihJBbb@@@';
     let mol = Molecule.fromIDCode(idcode);
@@ -52,7 +77,7 @@ describe('Molecule', function() {
     expect(mol.getIDCode()).toBe(idcode);
   });
 
-  it('toSVG', function() {
+  it('toSVG', () => {
     const mol = Molecule.fromSmiles('CCOCCO');
     let svg = mol.toSVG(300, 150, 'myId');
     expect(svg).toContain('width="300px" height="150px"');
@@ -67,6 +92,22 @@ describe('Molecule', function() {
     expect(svg).toContain('stroke-width="2"');
   });
 
+  it('toSVG wrong coordinates (all 0)', () => {
+    const mol = Molecule.fromSmiles('CCOCCO');
+    for (let i = 0; i < mol.getAllAtoms(); i++) {
+      mol.setAtomX(i, 0);
+      mol.setAtomY(i, 0);
+      mol.setAtomZ(i, 0);
+    }
+    let svg = mol.toSVG(300, 150, 'myId');
+    for (let i = 0; i < mol.getAllAtoms(); i++) {
+      expect(mol.getAtomX(i)).toBe(0);
+      expect(mol.getAtomY(i)).toBe(0);
+      expect(mol.getAtomZ(i)).toBe(0);
+    }
+    expect(svg).toContain('width="300px" height="150px"');
+  });
+
   it('toSVG with autoCrop', () => {
     const mol = Molecule.fromSmiles('CCOCCO');
     let svg = mol.toSVG(300, 150, 'myId', { autoCrop: true });
@@ -76,7 +117,7 @@ describe('Molecule', function() {
     expect(svg).toMatchSnapshot();
   });
 
-  it('molfile V3', function() {
+  it('molfile V3', () => {
     const idcode =
       'enYXNH@MHDAELem`OCIILdhhdiheCDlieKDdefndZRVVjjfjjfjihJBbb@@@';
     let mol = Molecule.fromIDCode(idcode);
@@ -106,7 +147,7 @@ describe('Molecule', function() {
     let mol = Molecule.fromSmiles('CC(Cl)CC');
     expect(mol.getChiralText()).toBe('unknown chirality');
     mol.addMissingChirality();
-    expect(mol.getChiralText()).toBe('racemate');
+    expect(mol.getChiralText()).toBe('both enantiomers');
 
     mol = Molecule.fromSmiles('CC(Cl)CC');
     mol.addMissingChirality(Molecule.cESRTypeOr);
@@ -117,7 +158,7 @@ describe('Molecule', function() {
     expect(mol.getChiralText()).toBe('this enantiomer');
   });
 
-  it.skip('getCanonizedIDCode', () => {
+  it('getCanonizedIDCode', () => {
     let idcode = 'didH@@RYm^Fh@BHx@';
     let mol = Molecule.fromIDCode(idcode);
     expect(
@@ -137,5 +178,48 @@ describe('Molecule', function() {
     expect(
       mol.getCanonizedIDCode(Molecule.CANONIZER_DISTINGUISH_RACEMIC_OR_GROUPS),
     ).toBe(idcode);
+  });
+
+  it('getFinalRanks', () => {
+    const molecule = Molecule.fromSmiles('CCC');
+    molecule.setAtomicNo(0, 8);
+    const atoms = [];
+    const ranks = [...molecule.getFinalRanks()];
+    for (let i = 0; i < molecule.getAllAtoms(); i++) {
+      atoms.push(molecule.getAtomLabel(i), ranks[i]);
+    }
+    expect(atoms).toStrictEqual(['O', 3, 'C', 2, 'C', 1]);
+    const molecule2 = Molecule.fromSmiles('CCC');
+    molecule2.setAtomicNo(2, 8);
+    const atoms2 = [];
+    const ranks2 = [...molecule2.getFinalRanks()];
+    for (let i = 0; i < molecule2.getAllAtoms(); i++) {
+      atoms2.push(molecule2.getAtomLabel(i), ranks2[i]);
+    }
+    expect(atoms2).toStrictEqual(['C', 1, 'C', 2, 'O', 3]);
+  });
+
+  it('getFinalRanks of xMolecule', () => {
+    const molecule = Molecule.fromSmiles('CCCO');
+    const xAtomicNumber = Molecule.getAtomicNoFromLabel(
+      'X',
+      Molecule.cPseudoAtomX,
+    );
+    molecule.addImplicitHydrogens();
+    for (let i = 0; i < molecule.getAllAtoms(); i++) {
+      // hydrogens are not taken into account during canonization, we need to change them with an atom with a valence of 1
+      if (molecule.getAtomicNo(i) === 1) {
+        molecule.setAtomicNo(i, xAtomicNumber);
+      }
+    }
+
+    const ranks = [...molecule.getFinalRanks()];
+    expect(ranks).toStrictEqual([3, 1, 2, 4, 11, 10, 9, 5, 6, 7, 8, 12]);
+  });
+
+  it('should have a method that returns the OCL object', () => {
+    const molecule = Molecule.fromSmiles('C');
+    const OCL = molecule.getOCL();
+    expect(OCL.Molecule).toStrictEqual(Molecule);
   });
 });

@@ -46,22 +46,22 @@ package com.actelion.research.chem;
 
 import com.actelion.research.io.BOMSkipper;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.StringReader;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.TreeMap;
 
 public class MolfileParser
 {
 	public static final int MODE_KEEP_HYDROGEN_MAP = 1;
+	public static final int ALLOWED_ATOM_LABELS = Molecule.cPseudoAtomsHydrogenIsotops
+												| Molecule.cPseudoAtomsRGroups
+												| Molecule.cPseudoAtomsAminoAcids;
+	public static final int ALLOWED_ATOM_LABELS_IN_LIST = Molecule.cPseudoAtomsHydrogenIsotops;
 
 	public static boolean debug = false;
 	private StereoMolecule mMol;
 	private TreeMap<Integer,Integer> mAtomIndexMap,mBondIndexMap;
-	private boolean mTreatAnyAsMetalBond,mDeduceMissingCharges;
+	private boolean mTreatAnyAsMetalBond,mDeduceMissingCharges,mChiralFlag,mIsV3000,mAssumeChiralTrue;
 	private int mMode;
 	private int[] mHydrogenMap;
 
@@ -87,16 +87,19 @@ public class MolfileParser
 	}
 
 
-	private boolean readMoleculeFromBuffer(BufferedReader reader)
-	{
+	private boolean readMoleculeFromBuffer(BufferedReader reader) {
+		int[] valence = null;   // Some toolkit (RDKit) set vvv (valence) for charge atoms with normal valence
+								// Thus, we must check, whether we just have a charged normal valence atom
+								// before setting an abnormal valence for the atom.
+
 		try{
 			String line;
-			int natoms,nbonds,nlists,chiral,version;
+			int natoms,nbonds,nlists;
 
 			mHydrogenMap = null;
 
 			if(mMol != null){
-				mMol.deleteMolecule();
+				mMol.clear();
 				mMol.setFragment(false);
 			}
 
@@ -126,18 +129,20 @@ public class MolfileParser
 				return false;
 			}
 
+			mIsV3000 = false;
+			mChiralFlag = mAssumeChiralTrue;
 			try{
 				natoms = Integer.parseInt(line.substring(0,3).trim());
 				nbonds = Integer.parseInt(line.substring(3,6).trim());
 				nlists = parseIntOrSpaces(line.substring(6,9).trim());
-				chiral = parseIntOrSpaces(line.substring(12,15).trim());
-				version = (line.length() >= 39 && line.substring(34,39).equals("V3000")) ? 3 : 2;
+				mChiralFlag |= (1 == parseIntOrSpaces(line.substring(12,15).trim()));
+				mIsV3000 = (line.length() >= 39 && line.startsWith("V3000", 34));
 			} catch(Exception e){
 				TRACE("Warning [readMoleculeFromBuffer]: Unable to interpret counts line\n");
 				return false;
 			}
 
-			if(version == 3){
+			if(mIsV3000){
 				boolean res = readMoleculeV3FromBuffer(reader);
 				mMol.setName(name);
 				return res;
@@ -149,7 +154,7 @@ public class MolfileParser
 
 			mMol.setName(name);
 
-			if(chiral == 0){
+			if(!mChiralFlag){
 				mMol.setToRacemate();
 			}
 
@@ -174,20 +179,28 @@ public class MolfileParser
 				int atom = mMol.addAtom(x, -y, -z);
 
 				String label = line.substring(31,34).trim();
-				int atomicNo = Molecule.getAtomicNoFromLabel(label);
-				mMol.setAtomicNo(atom,atomicNo);
-				if(label.equals("A")){
+				if(label.equals("A") || label.equals("*")){
 					mMol.setAtomQueryFeature(atom,Molecule.cAtomQFAny,true);
+				} else if(label.equals("Q")) {    // 'Q' is defined as 'unspecified' for V2000; we use V3000 behaviour (any but not C,H)
+					int[] list = new int[1];
+					list[0] = 6;
+					mMol.setAtomList(atom, list, true);
+				} else {
+					int atomicNo = Molecule.getAtomicNoFromLabel(label, ALLOWED_ATOM_LABELS);
+					mMol.setAtomicNo(atom,atomicNo);
 				}
 
 				int massDif = parseIntOrSpaces(line.substring(34,36).trim());
 				if(massDif != 0){
-					mMol.setAtomMass(atom,Molecule.cRoundedMass[atomicNo] + massDif);
+					mMol.setAtomMass(atom,Molecule.cRoundedMass[mMol.getAtomicNo(atom)] + massDif);
 				}
 
 				int chargeDif = parseIntOrSpaces(line.substring(36,39).trim());
 				if(chargeDif != 0){
-					mMol.setAtomCharge(atom,4 - chargeDif);
+					if (chargeDif == 4)
+						mMol.setAtomRadical(atom, Molecule.cAtomRadicalStateD);
+					else
+						mMol.setAtomCharge(atom,4 - chargeDif);
 				}
 
 				int mapNo = (line.length() < 63) ? 0 : parseIntOrSpaces(line.substring(60,63).trim());
@@ -221,17 +234,12 @@ public class MolfileParser
 					mMol.setAtomQueryFeature(atom,Molecule.cAtomQFMatchStereo,true);
 				}
 
-                int valence = (line.length() < 51) ? 0 : parseIntOrSpaces(line.substring(48,51).trim());
-                switch (valence) {
-                case 0:
-                    break;
-                case 15:
-                    mMol.setAtomAbnormalValence(atom, 0);
-                    break;
-                default:
-                    mMol.setAtomAbnormalValence(atom, valence);
-                    break;
-                }
+                int v = (line.length() < 51) ? 0 : parseIntOrSpaces(line.substring(48,51).trim());
+				if (v != 0) {
+					if (valence == null)
+						valence = new int[natoms];
+					valence[atom] = v;
+				}
 			}
 
 			// Loop all the bonds , read the bond record and generate
@@ -272,12 +280,14 @@ public class MolfileParser
 			if(null == (line = reader.readLine())){
 				TRACE("Error ReadMoleculeFromBuffer Missing M END or $$$$\n");
 
-				if(chiral == 0){
-					// to run the racemization scheduled with mMol.setToRacemate()
-					if ((mMode & MODE_KEEP_HYDROGEN_MAP) != 0)
-						mHydrogenMap = mMol.getHandleHydrogenMap();
+				if ((mMode & MODE_KEEP_HYDROGEN_MAP) != 0)
+					mHydrogenMap = mMol.getHandleHydrogenMap();
+
+				handleValences(valence);
+
+				// to run the racemization scheduled with mMol.setToRacemate()
+				if(!mChiralFlag)
 					mMol.ensureHelperArrays(Molecule.cHelperParities);
-				}
 
 				return true;
 			}
@@ -393,8 +403,9 @@ public class MolfileParser
 						int aaa = 16;
 						for(int k = 0;k < no;k++,aaa += 4){
 							String sym = line.substring(aaa,aaa + 4).trim();
-							v[k] = Molecule.getAtomicNoFromLabel(sym);
+							v[k] = Molecule.getAtomicNoFromLabel(sym, ALLOWED_ATOM_LABELS_IN_LIST);
 						}
+						mMol.setAtomicNo(atom, 6);
 						mMol.setAtomList(atom,v,bNotList);
 					}
 				}
@@ -426,6 +437,22 @@ public class MolfileParser
 					}
 				}
 
+				if(line.startsWith("M  RGP")){
+					int aaa,vvv;
+					int j = Integer.parseInt(line.substring(6,9).trim());
+					if(j > 0){
+						aaa = 10;
+						vvv = 14;
+						for(int k = 1;k <= j;k++,aaa += 8,vvv += 8){
+							int atom = Integer.parseInt(line.substring(aaa,aaa + 3).trim()) - 1;
+							int rno = Integer.parseInt(line.substring(vvv,vvv + 3).trim());
+							if(rno >= 1 && rno <= 20){
+								mMol.setAtomicNo(atom, Molecule.getAtomicNoFromLabel("R"+rno, Molecule.cPseudoAtomsRGroups));
+							}
+						}
+					}
+				}
+
 				line = reader.readLine();
 			}
 		} catch(Exception e){
@@ -443,9 +470,55 @@ public class MolfileParser
 		// centers which will be assigned to one ESR-AND group
 		if ((mMode & MODE_KEEP_HYDROGEN_MAP) != 0)
 			mHydrogenMap = mMol.getHandleHydrogenMap();
+
+		handleValences(valence);
+
 		mMol.ensureHelperArrays(Molecule.cHelperParities);
 
 		return true;
+	}
+
+	/**
+	 * Some software exports mol/sd-files with an unset chiral flag despite
+	 * the original molecule is a pure enantiomer. This method allows the
+	 * MolfileParser to override the molfile's chiral flag for such cases.
+	 * @param b
+	 */
+	public void setAssumeChiralTrue(boolean b) {
+		mAssumeChiralTrue = b;
+	}
+
+	/**
+	 * @return whether the previous molfile's chiral flag was set
+	 */
+	public boolean isChiralFlagSet() {
+		return mChiralFlag;
+	}
+
+	/**
+	 * @return whether the previous molfile was a V3000
+	 */
+	public boolean isV3000() {
+		return mIsV3000;
+	}
+
+	private void handleValences(int[] valence) {
+		if (valence != null) {
+			mMol.ensureHelperArrays(Molecule.cHelperNeighbours);
+			for (int atom=0; atom<mMol.getAtoms(); atom++) {
+				if (valence[atom] != 0) {
+					int chargeCorrection = mMol.getElectronValenceCorrection(atom, mMol.getOccupiedValence(atom));
+					if (valence[atom] == 15 ) {
+						if (chargeCorrection >= 0)
+							mMol.setAtomAbnormalValence(atom, 0);
+					}
+					else {
+						if (valence[atom] != mMol.getMaxValence(atom))
+							mMol.setAtomAbnormalValence(atom, valence[atom] - chargeCorrection);
+					}
+				}
+			}
+		}
 	}
 
 	private boolean readMoleculeV3FromBuffer(BufferedReader reader) throws IOException
@@ -563,21 +636,23 @@ public class MolfileParser
 		if(atom + 1 != atomIndex)
 			mapAtomIndex(atomIndex, atom);
 
-		if (v != null)
-			mMol.setAtomList(atom,v,bNotList);
+		if (v != null) {
+			mMol.setAtomicNo(atom, 6);
+			mMol.setAtomList(atom, v, bNotList);
+		}
 
 		if(mapNo != 0){
 			mMol.setAtomMapNo(atom,mapNo,false);
 		}
 
-		if(label.equals("A")){
+		if(label.equals("A") || label.equals("*")){
 			mMol.setAtomQueryFeature(atom,Molecule.cAtomQFAny,true);
 		} else if(label.equals("Q")){
 			int[] list = new int[1];
 			list[0] = 6;
 			mMol.setAtomList(atom,list,true);
 		} else{
-			mMol.setAtomicNo(atom,Molecule.getAtomicNoFromLabel(label));
+			mMol.setAtomicNo(atom,Molecule.getAtomicNoFromLabel(label, ALLOWED_ATOM_LABELS));
 		}
 
 		while((index1 = indexOfNextItem(line,index2)) != -1){
@@ -798,7 +873,7 @@ public class MolfileParser
 	/**
 	 * Interprets the atom description line and returns the atom list for this atom
 	 * @param line String Atom description line
-	 * @return int[] Array containg the atomic numbers for the list or null if no atom list could be interpreted
+	 * @return int[] Array contaning the atomic numbers for the list or null if no atom list could be interpreted
 	 */
 	private int[] interpretV3AtomList(String line)
 	{
@@ -824,7 +899,7 @@ public class MolfileParser
 					l = s.substring(0,i1);
 					s = s.substring(i1+1);
 				}
-				atoms[index++] = Molecule.getAtomicNoFromLabel(l);
+				atoms[index++] = Molecule.getAtomicNoFromLabel(l, ALLOWED_ATOM_LABELS_IN_LIST);
 			}
 			res = new int[index];
 			System.arraycopy(atoms,0,res,0,index);
@@ -927,8 +1002,26 @@ public class MolfileParser
 	public StereoMolecule getCompactMolecule(String molFile)
 	{
 		mMol = null;
-		return (readMoleculeFromBuffer(new BufferedReader(new StringReader(molFile)))) ?
-			mMol : null;
+		return readMoleculeFromBuffer(new BufferedReader(new StringReader(molFile))) ? mMol : null;
+	}
+
+	public StereoMolecule getCompactMolecule(BufferedReader reader)
+	{
+		mMol = null;
+		return (readMoleculeFromBuffer(reader)) ? mMol : null;
+	}
+
+	public StereoMolecule getCompactMolecule(File file)
+	{
+		mMol = null;
+		try {
+			BufferedReader reader = new BufferedReader(new FileReader(file));
+			boolean success = readMoleculeFromBuffer(reader);
+			try { reader.close(); } catch (IOException ioe) {}
+			return success ? mMol : null;
+		} catch (FileNotFoundException fnfe) {
+			return null;
+		}
 	}
 
 	private int buildBond(int atom1,int atom2,int bondType,
@@ -944,7 +1037,7 @@ public class MolfileParser
 			case 3:
 				realBondType = Molecule.cBondTypeCross;
 				break;
-			case 4:
+			case 4: // we interpret 'either' as being racemic
 				realBondType = Molecule.cBondTypeUp;
 				isAtomESRAnd = true;
 				break;

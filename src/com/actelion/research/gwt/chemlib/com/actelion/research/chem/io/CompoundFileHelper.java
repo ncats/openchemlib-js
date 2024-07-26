@@ -33,40 +33,60 @@
 
 package com.actelion.research.chem.io;
 
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.ArrayList;
-
-import com.actelion.research.chem.MolfileCreator;
+import com.actelion.research.chem.Canonizer;
+import com.actelion.research.chem.MolfileParser;
 import com.actelion.research.chem.StereoMolecule;
 import com.actelion.research.chem.reaction.Reaction;
 
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+
 public abstract class CompoundFileHelper {
-	public static final int cFileTypeMask = 0x0000FFFF;
+	public static final int cFileTypeMask = 0x007FFFFF;
 	public static final int cFileTypeDataWarrior = 0x00000001;
 	public static final int cFileTypeDataWarriorTemplate = 0x00000002;
 	public static final int cFileTypeDataWarriorQuery = 0x00000004;
 	public static final int cFileTypeDataWarriorMacro = 0x00000008;
 	public static final int cFileTypeTextTabDelimited = 0x00000010;
     public static final int cFileTypeTextCommaSeparated = 0x00000020;
-    public static final int cFileTypeText = cFileTypeTextTabDelimited | cFileTypeTextCommaSeparated;
-	public static final int cFileTypeSDV3 = 0x00000040;
-    public static final int cFileTypeSDV2 = 0x00000080;
+	public static final int cFileTypeTextSemicolonSeparated = 0x00000040;
+	public static final int cFileTypeTextVLineSeparated = 0x00000080;
+	public static final int cFileTypeTextAnyCSV = cFileTypeTextCommaSeparated | cFileTypeTextSemicolonSeparated | cFileTypeTextVLineSeparated;
+    public static final int cFileTypeTextAny = cFileTypeTextTabDelimited | cFileTypeTextAnyCSV;
+	public static final int cFileTypeSDV3 = 0x00000100;
+    public static final int cFileTypeSDV2 = 0x00000200;
     public static final int cFileTypeSD = cFileTypeSDV3 | cFileTypeSDV2;
-	public static final int cFileTypeDataWarriorCompatibleData = cFileTypeDataWarrior | cFileTypeText | cFileTypeSD;
-	public static final int cFileTypeDataWarriorTemplateContaining = cFileTypeDataWarrior | cFileTypeDataWarriorQuery | cFileTypeDataWarriorTemplate;
-	public static final int cFileTypeRXN = 0x00000100;
-	public static final int cFileTypeSOM = 0x00000200;
-	public static final int cFileTypeJPG = 0x00000400;
-	public static final int cFileTypePNG = 0x00000800;
-	public static final int cFileTypeSVG = 0x00001000;
-	public static final int cFileTypePictureFile = cFileTypeJPG | cFileTypePNG | cFileTypeSVG;
-    public static final int cFileTypeRDV3 = 0x00002000;
-    public static final int cFileTypeRDV2 = 0x00004000;
+	public static final int cFileTypeRXN = 0x00000400;
+	public static final int cFileTypeSOM = 0x00000800;
+	public static final int cFileTypeJPG = 0x00001000;
+	public static final int cFileTypeGIF = 0x00002000;
+	public static final int cFileTypePNG = 0x00004000;
+	public static final int cFileTypeSVG = 0x00008000;
+	public static final int cFileTypePictureFile = cFileTypeJPG | cFileTypeGIF | cFileTypePNG | cFileTypeSVG;
+    public static final int cFileTypeRDV3 = 0x00010000;
+    public static final int cFileTypeRDV2 = 0x00020000;
     public static final int cFileTypeRD = cFileTypeRDV3 | cFileTypeRDV2;
+	public static final int cFileTypeMOL = 0x00040000;
+	public static final int cFileTypeMOL2 = 0x00080000;
+	public static final int cFileTypePDB = 0x00100000;
+	public static final int cFileTypeMMTF = 0x00200000;
+	public static final int cFileTypeProtein = cFileTypePDB | cFileTypeMMTF;
+	public static final int cFileTypeSDGZ = 0x00400000;
     public static final int cFileTypeUnknown = -1;
+	public static final int cFileTypeDirectory = -2;
+
+	public static final int cFileTypeCompoundFiles =
+			  CompoundFileHelper.cFileTypeMOL
+			| CompoundFileHelper.cFileTypeMOL2
+			| CompoundFileHelper.cFileTypeSD
+			| CompoundFileHelper.cFileTypeDataWarrior;
+
+	// explicitly supported compression format (SD-files only)
+	public static final String cGZipExtention = ".gz";
+
+	public static final int cFileTypeDataWarriorCompatibleData = cFileTypeDataWarrior | cFileTypeTextAny | cFileTypeRD | cFileTypeSD | cFileTypeSDGZ;
+	public static final int cFileTypeDataWarriorTemplateContaining = cFileTypeDataWarrior | cFileTypeDataWarriorQuery | cFileTypeDataWarriorTemplate;
 
 	private static File sCurrentDirectory;
 	private int mRecordCount,mErrorCount;
@@ -85,18 +105,12 @@ public abstract class CompoundFileHelper {
 		}
 
 	public ArrayList<StereoMolecule> readStructuresFromFile(boolean readIdentifier) {
-        File file = selectFileToOpen("Please select substance file",
-                               CompoundFileHelper.cFileTypeSD
-                             | CompoundFileHelper.cFileTypeDataWarrior);
-
+        File file = selectFileToOpen("Please select a compound file", cFileTypeCompoundFiles);
         return readStructuresFromFile(file, readIdentifier);
 	    }
 
 	public ArrayList<String> readIDCodesFromFile() {
-        File file = selectFileToOpen("Please select substance file",
-        					   CompoundFileHelper.cFileTypeSD
-                             | CompoundFileHelper.cFileTypeDataWarrior);
-
+        File file = selectFileToOpen("Please select a compound file", cFileTypeCompoundFiles);
         return readIDCodesFromFile(file);
 	    }
 
@@ -112,7 +126,7 @@ public abstract class CompoundFileHelper {
 
 	/**
 	 * Reads all compounds as idcode list from the given file.
-	 * @param file SD- or DataWarrior file
+	 * @param file MOL-, mol2-, SD- or DataWarrior file
 	 * @return
 	 */
 	public ArrayList<String> readIDCodesFromFile(File file) {
@@ -135,7 +149,8 @@ public abstract class CompoundFileHelper {
 	public ArrayList<String[]> readIDCodesWithNamesFromFile(File file, boolean readIDCoords) {
 		if (file == null)
 			file = selectFileToOpen("Please select substance file",
-									CompoundFileHelper.cFileTypeSD
+									CompoundFileHelper.cFileTypeMOL
+								  | CompoundFileHelper.cFileTypeSD
 								  | CompoundFileHelper.cFileTypeDataWarrior);
 
 		if (file == null)
@@ -154,9 +169,40 @@ public abstract class CompoundFileHelper {
 	                                     boolean readIdentifier, boolean readIDCoords) {
 	    mRecordCount = 0;
 	    mErrorCount = 0;
-	    String filename = file.getName();
+	    String filename = "";
 	    int index = filename.indexOf('.');
 	    String extention = (index == -1) ? "" : filename.substring(index).toLowerCase();
+
+	    if (extention.equals(".mol")
+		 || extention.equals(".mol2")) {
+		    StereoMolecule mol = null;
+	    	if (extention.equals(".mol"))
+			    mol = new MolfileParser().getCompactMolecule(file);
+	    	else
+			    try { mol = new Mol2FileParser().load(filename); } catch (Exception e) { e.printStackTrace(); }
+
+		    if (mol != null && mol.getAllAtoms() != 0) {
+			    if (moleculeList != null)
+			        moleculeList.add(mol);
+			    if (idcodeList != null || idcodeWithIDList != null) {
+			        Canonizer canonizer = new Canonizer(mol);
+			        String idcode = canonizer.getIDCode();
+				    String coords = canonizer.getEncodedCoordinates();
+			        if (idcode != null && coords.length() != 0 && readIDCoords)
+			            idcode = idcode+" "+coords;
+			        if (idcodeList != null)
+			            idcodeList.add(idcode);
+			        if (idcodeWithIDList != null) {
+					    String[] idcodeWithID = new String[2];
+					    idcodeWithID[0] = idcode;
+					    idcodeWithID[1] = mol.getName();
+					    idcodeWithIDList.add(idcodeWithID);
+					    }
+				    }
+			    }
+	    	return;
+		    }
+
 	    CompoundFileParser parser = (extention.equals(".sdf")) ?
 	                                           new SDFileParser(file)
 	                              : (extention.equals(".dwar")) ?
@@ -239,81 +285,36 @@ public abstract class CompoundFileHelper {
 	    return mErrorCount;
 	    }
 	
-	public static CompoundFileFilter createFileFilter(int filetypes, boolean isSaving) {
-		CompoundFileFilter filter = new CompoundFileFilter();
-		if ((filetypes & cFileTypeDataWarrior) != 0) {
-            filter.addExtension("dwar");
-            if (!isSaving)
-                filter.addExtension("ode");  // old extention
-			filter.addDescription("DataWarrior data files");
-			}
-		if ((filetypes & cFileTypeDataWarriorTemplate) != 0) {
-            filter.addExtension("dwat");
-            if (!isSaving)
-                filter.addExtension("odt");  // old extention
-			filter.addDescription("DataWarrior template files");
-			}
-		if ((filetypes & cFileTypeDataWarriorQuery) != 0) {
-            filter.addExtension("dwaq");
-            if (!isSaving)
-                filter.addExtension("odq");  // old extention
-			filter.addDescription("DataWarrior query files");
-			}
-		if ((filetypes & cFileTypeDataWarriorMacro) != 0) {
-            filter.addExtension("dwam");
-			filter.addDescription("DataWarrior macro files");
-			}
-		if ((filetypes & cFileTypeTextTabDelimited) != 0) {
-			filter.addExtension("txt");
-			filter.addDescription("TAB delimited text files");
-			}
-        if ((filetypes & cFileTypeTextCommaSeparated) != 0) {
-            filter.addExtension("csv");
-            filter.addDescription("Comma separated text files");
-            }
-		if ((filetypes & cFileTypeRXN) != 0) {
-			filter.addExtension("rxn");
-			filter.addDescription("MDL reaction files");
-			}
-		if ((filetypes & cFileTypeSD) != 0) {
-			filter.addExtension("sdf");
-			filter.addDescription("MDL SD-files");
-			}
-		if ((filetypes & cFileTypeRD) != 0) {
-			filter.addExtension("rdf");
-			filter.addDescription("MDL RD-files");
-			}
-		if ((filetypes & cFileTypeSOM) != 0) {
-            filter.addExtension("dwas");
-            if (!isSaving)
-                filter.addExtension("som");  // old extention
-			filter.addDescription("DataWarrior self organized map");
-			}
-		if ((filetypes & cFileTypeJPG) != 0) {
-			filter.addExtension("jpg");
-			filter.addExtension("jpeg");
-			filter.addDescription("JPEG image files");
-			}
-		if ((filetypes & cFileTypePNG) != 0) {
-			filter.addExtension("png");
-			filter.addDescription("PNG image files");
-			}
-		if ((filetypes & cFileTypeSVG) != 0) {
-			filter.addExtension("svg");
-			filter.addDescription("scalable vector graphics files");
-			}
+	
 
-        if (filetypes == cFileTypeDataWarriorCompatibleData) {
-            filter.setDescription("DataWarrior compatible data files");
-            }
-        if (filetypes == cFileTypeDataWarriorTemplateContaining) {
-            filter.setDescription("Files containing a DataWarrior template");
-            }
-        if (filetypes == cFileTypePictureFile) {
-            filter.setDescription("Image files");
-            }
+	/**
+	 * Return the extension portion of the file's name.
+	 * Known joint extensions (currently only ".sdf.gz") are returned where they exist.
+	 * @return extension without the dot
+	 */
+	public static String getExtension(File file) {
+		int index = -1;
+		String filename = (file == null) ? null : "";
+		if (filename != null)
+			index = getExtensionIndex(filename);
 
-		return filter;
+		return (index == -1) ? null : filename.substring(index+1).toLowerCase();
+		}
+
+	/**
+	 * Returns the index of the dot separating filename from its extension.
+	 * Known joint extensions (currently only ".sdf.gz") are recognized.
+	 * @param filename
+	 * @return index of extension dot or -1
+	 */
+	private static int getExtensionIndex(String filename) {
+		int i = filename.lastIndexOf('.');
+
+		if (i>0 && i<filename.length()-1
+		 && filename.substring(i).equalsIgnoreCase(CompoundFileHelper.cGZipExtention))
+			i = filename.lastIndexOf('.', i-1);
+
+		return (i>0 && i<filename.length()-1) ? i : -1;
 		}
 
 	/**
@@ -323,13 +324,12 @@ public abstract class CompoundFileHelper {
 	 * @return naked file name without leading path and extension
 	 */
 	public static String removePathAndExtension(String filePath) {
-		int i1 = filePath.lastIndexOf(File.separatorChar);
-		int i2 = (getFileType(filePath) != cFileTypeUnknown) ?
-				filePath.lastIndexOf('.') : -1;
+		int i1 = filePath.lastIndexOf(10);
+		int i2 = (getFileType(filePath) != cFileTypeUnknown) ? getExtensionIndex(filePath) : -1;
 		if (i1 == -1)
 			return (i2 == -1) ? filePath : filePath.substring(0, i2);
 		else
-			return (i2 == -1) ? filePath.substring(i1+1) : filePath.substring(i1+1, i2);
+			return (i2 == -1 || i2 < i1) ? filePath.substring(i1+1) : filePath.substring(i1+1, i2);
 		}
 
 	/**
@@ -343,8 +343,13 @@ public abstract class CompoundFileHelper {
 		return (i == -1) ? filePath : filePath.substring(0, i);
 		}
 
+	/**
+	 * Note: If
+	 * @param filename
+	 * @return one or multiple filtetypes that matching the extension of the given filename
+	 */
 	public static int getFileType(String filename) {
-        int index = filename.lastIndexOf('.');
+        int index = getExtensionIndex(filename);
 
         if (index == -1)
             return cFileTypeUnknown;
@@ -360,22 +365,34 @@ public abstract class CompoundFileHelper {
             return cFileTypeSOM;
         if (extension.equals(".dwam"))
             return cFileTypeDataWarriorMacro;
-        if (extension.equals(".txt"))
+        if (extension.equals(".txt") || extension.equals(".tsv"))
             return cFileTypeTextTabDelimited;
         if (extension.equals(".csv"))
-            return cFileTypeTextCommaSeparated;
+            return cFileTypeTextAnyCSV;
         if (extension.equals(".sdf"))
             return cFileTypeSD;
+		if (extension.equals(".sdf.gz"))
+			return cFileTypeSDGZ;
         if (extension.equals(".rdf"))
             return cFileTypeRD;
         if (extension.equals(".rxn"))
             return cFileTypeRXN;
         if (extension.equals(".jpg") || extension.equals(".jpeg"))
             return cFileTypeJPG;
+		if (extension.equals(".gif"))
+			return cFileTypeGIF;
         if (extension.equals(".png"))
             return cFileTypePNG;
         if (extension.equals(".svg"))
             return cFileTypeSVG;
+		if (extension.equals(".mol"))
+			return cFileTypeMOL;
+		if (extension.equals(".mol2"))
+			return cFileTypeMOL2;
+		if (extension.equals(".pdb"))
+			return cFileTypePDB;
+		if (extension.equals(".mmtf"))
+			return cFileTypeMMTF;
 
         return cFileTypeUnknown;
         }
@@ -388,11 +405,11 @@ public abstract class CompoundFileHelper {
     	ArrayList<String> list = new ArrayList<String>();
     	int type = 0x00000001;
     	while ((type & cFileTypeMask) != 0) {
-    		if ((type & fileTypes) != 0) {
-    			String extension = getExtension(type);
-    			if (extension.length() != 0 && !list.contains(extension))
-    				list.add(extension);
-    			}
+    		if ((type & fileTypes) != 0)
+    			for (String extension:getExtensions(type))
+    			    if (!list.contains(extension))
+    				    list.add(extension);
+
     		type <<= 1;
     		}
     	return list;
@@ -400,80 +417,89 @@ public abstract class CompoundFileHelper {
 
 	/**
 	 * @param filetype
-	 * @return file extension including the dot
+	 * @return preferred file extension including the dot
 	 */
-    public static String getExtension(int filetype) {
-		String extension = "";
+	public static String getExtension(int filetype) {
+    	String[] extensions = getExtensions(filetype);
+    	return extensions.length == 0 ? "" : extensions[0];
+		}
+
+	/**
+	 * @param filetype
+	 * @return file extensions including the dot
+	 */
+    public static String[] getExtensions(int filetype) {
+		ArrayList<String> extensions = new ArrayList<>();
 		switch (filetype) {
 		case cFileTypeDataWarrior:
-			extension = ".dwar";
+			extensions.add(".dwar");
 			break;
 		case cFileTypeDataWarriorQuery:
-			extension = ".dwaq";
+			extensions.add(".dwaq");
 			break;
 		case cFileTypeDataWarriorTemplate:
-			extension = ".dwat";
+			extensions.add(".dwat");
 			break;
 		case cFileTypeDataWarriorMacro:
-			extension = ".dwam";
+			extensions.add(".dwam");
 			break;
 		case cFileTypeTextTabDelimited:
-			extension = ".txt";
+			extensions.add(".txt");
+			extensions.add(".tsv");
 			break;
+		case cFileTypeTextAnyCSV:
         case cFileTypeTextCommaSeparated:
-            extension = ".csv";
+		case cFileTypeTextSemicolonSeparated:
+		case cFileTypeTextVLineSeparated:
+            extensions.add(".csv");
             break;
 		case cFileTypeSD:
         case cFileTypeSDV2:
         case cFileTypeSDV3:
-			extension = ".sdf";
+			extensions.add(".sdf");
 			break;
 		case cFileTypeRD:
         case cFileTypeRDV2:
         case cFileTypeRDV3:
-			extension = ".rdf";
+			extensions.add(".rdf");
 			break;
 		case cFileTypeRXN:
-			extension = ".rxn";
+			extensions.add(".rxn");
 			break;
 		case cFileTypeSOM:
-			extension = ".dwas";
+			extensions.add(".dwas");
 			break;
 		case cFileTypeJPG:
-			extension = ".jpeg";
+			extensions.add(".jpeg");
+			extensions.add(".jpg");
+			break;
+		case cFileTypeGIF:
+			extensions.add(".gif");
 			break;
 		case cFileTypePNG:
-			extension = ".png";
+			extensions.add(".png");
 			break;
 		case cFileTypeSVG:
-			extension = ".svg";
+			extensions.add(".svg");
+			break;
+		case cFileTypeMOL:
+			extensions.add(".mol");
+			break;
+		case cFileTypeMOL2:
+			extensions.add(".mol2");
+			break;
+		case cFileTypePDB:
+			extensions.add(".pdb");
+			break;
+		case cFileTypeMMTF:
+			extensions.add(".mmtf");
+			break;
+		case cFileTypeSDGZ:
+			extensions.add(".sdf.gz");
 			break;
 			}
-		return extension;
+		return extensions.toArray(new String[0]);
 		}
 
-	public void saveRXNFile(Reaction rxn) {
-		String fileName = selectFileToSave("Select reaction file", cFileTypeRXN, "Untitled Reaction");
-		if (fileName != null) {
-			String extension = ".rxn";
-			int dotIndex = fileName.lastIndexOf('.');
-			int slashIndex = fileName.lastIndexOf(File.separator);
-			if (dotIndex == -1
-			 || dotIndex < slashIndex)
-				fileName = fileName.concat(extension);
-		    else if (!fileName.substring(dotIndex).equalsIgnoreCase(extension)) {
-				showMessage("uncompatible file name extension.");
-			    return;
-				}
-
-			try {
-				BufferedWriter theWriter = new BufferedWriter(new FileWriter(new File(fileName)));
-				new RXNFileCreator(rxn).writeRXNfile(theWriter);
-				theWriter.close();
-				}
-			catch (IOException e) {
-				showMessage("IOException: "+e);
-				}
-			}
-		}
+	
 	}

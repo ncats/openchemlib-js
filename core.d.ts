@@ -1,11 +1,15 @@
 export * from './minimal';
 export {
-  IParameterizedString,
-  MoleculeProperties,
+  CanonizerUtil,
+  ConformerGenerator,
   DruglikenessPredictor,
   DrugScoreCalculator,
-  ToxicityPredictor,
+  ForceFieldMMFF94,
   IInitializeConformersOptions,
-  ConformerGenerator,
-  ForceFieldMMFF94
+  IParameterizedString,
+  MoleculeProperties,
+  ReactionEncoder,
+  Reactor,
+  Transformer,
+  ToxicityPredictor,
 } from './types';

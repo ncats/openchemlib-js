@@ -43,6 +43,8 @@ import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FileHelper extends CompoundFileHelper {
+	private static final long TIME_OUT = 5000;
+
 	private Component mParent;
 
 	public FileHelper(Component parent) {
@@ -50,8 +52,11 @@ public class FileHelper extends CompoundFileHelper {
 		}
 
 	public String selectOption(String message, String title, String[] option) {
-        return (String)JOptionPane.showInputDialog(mParent, message, title,
-        										   JOptionPane.QUESTION_MESSAGE, null, option, option[0]);
+		if (SwingUtilities.isEventDispatchThread())
+	        return (String)JOptionPane.showInputDialog(mParent, message, title,
+            										   JOptionPane.QUESTION_MESSAGE, null, option, option[0]);
+		else
+			return null;
 		}
 
 	public void showMessage(String message) {
@@ -67,6 +72,17 @@ public class FileHelper extends CompoundFileHelper {
 	 */
 	public static File getFile(Component parent, String title, int filetypes) {
 		return new FileHelper(parent).selectFileToOpen(title, filetypes);
+		}
+
+	public static ArrayList<File> getCompatibleFileList(File directory, int filetypes) {
+		ArrayList<File> list = new ArrayList<>();
+		if (fileExists(directory)) {
+			javax.swing.filechooser.FileFilter ff = FileHelper.createFileFilter(filetypes, false);
+			for (File file:directory.listFiles((File pathname) -> ff.accept(pathname) ))
+				list.add(file);
+			}
+
+		return list;
 		}
 
 	public File selectFileToOpen(String title, int filetypes) {
@@ -90,7 +106,10 @@ public class FileHelper extends CompoundFileHelper {
 
 		fileChooser.setDialogTitle(title);
 		fileChooser.setCurrentDirectory(getCurrentDirectory());
-		fileChooser.setFileFilter(createFileFilter(filetypes, false));
+		if (filetypes == cFileTypeDirectory)
+			fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+		else if (filetypes != cFileTypeUnknown)
+			fileChooser.setFileFilter(createFileFilter(filetypes, false));
 		if (initialFileName != null) {
 			int index = initialFileName.lastIndexOf(File.separatorChar);
 			if (index == -1) {
@@ -111,7 +130,7 @@ public class FileHelper extends CompoundFileHelper {
 		File selectedFile = fileChooser.getSelectedFile();
 		if (selectedFile.exists())
 			return selectedFile;
-		if (selectedFile.getName().contains("."))
+		if (selectedFile.getName().contains(".") || filetypes == cFileTypeDirectory)
 			return selectedFile;
 		ArrayList<String> list = getExtensionList(filetypes);
 		for (String extension:list) {
@@ -140,7 +159,7 @@ public class FileHelper extends CompoundFileHelper {
 		fileChooser.setCurrentDirectory(getCurrentDirectory());
 		fileChooser.setDialogTitle(title);
 		fileChooser.setFileFilter(createFileFilter(filetype, true));
-		fileChooser.setExtension(FileHelper.getExtension(filetype));
+		fileChooser.setExtensions(FileHelper.getExtensions(filetype));
 		if (newFileName == null) {
 			fileChooser.setSelectedFile(new File(FileHelper.getCurrentDirectory(), "Untitled"));
 			}
@@ -162,18 +181,26 @@ public class FileHelper extends CompoundFileHelper {
 		return (option != JFileChooser.APPROVE_OPTION) ? null : fileChooser.getFile().getPath();
 		}
 
-	// java.io.File.exists() and java.nio.file.Files.exists() may cause minutes of delay,
-	// if a file is/was on a network share which is currently unmounted. This version returns quickly.
+	/**
+	 * java.io.File.exists() and java.nio.file.Files.exists() may cause minutes of delay,
+	 * if a file is/was on a network share which is currently unmounted. This version returns quickly.
+	 */
+	public static boolean fileExists(final File file) {
+		return fileExists(file, TIME_OUT);
+		}
+
+		/**
+		 * java.io.File.exists() and java.nio.file.Files.exists() may cause minutes of delay,
+		 * if a file is/was on a network share which is currently unmounted. This version returns quickly.
+		  */
 	public static boolean fileExists(final File file, final long timeOutMillis) {
 		final AtomicBoolean exists = new AtomicBoolean(false);
 		final AtomicBoolean done = new AtomicBoolean(false);
 
-		new Thread(new Runnable() {
-			@Override public void run() {
-				exists.set(file.exists());
-				done.set(true);
-				}
-			}).start();
+		new Thread(() -> {
+			exists.set(file.exists());
+			done.set(true);
+			} ).start();
 
 		long start = System.currentTimeMillis();
 		do {

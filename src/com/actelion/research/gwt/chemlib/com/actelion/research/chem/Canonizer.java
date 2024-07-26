@@ -14,7 +14,7 @@
 * 2. Redistributions in binary form must reproduce the above copyright notice,
 *    this list of conditions and the following disclaimer in the documentation
 *    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
+* 3. Neither the name of the copyright holder nor the
 *    names of its contributors may be used to endorse or promote products
 *    derived from this software without specific prior written permission.
 *
@@ -29,6 +29,7 @@
 * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *
+* @author Thomas Sander
 */
 
 // Restriction: - Although bond query features are encoded into the idcode, idcodes of
@@ -49,21 +50,17 @@ public class Canonizer {
 
 	// The following options CONSIDER_DIASTEREOTOPICITY, CONSIDER_ENANTIOTOPICITY
 	// and CONSIDER_STEREOHETEROTOPICITY have no influence on the idcode,
-	// i.e. the idcode is the same whether or not one of these options is
-	// used. However, if you require e.g. a pro-E atom always to appear
+	// i.e. the idcode is the same whether one of these options is used.
+	// However, if you require e.g. a pro-E atom always to appear
 	// before the pro-Z, e.g. because you can distinguish them from the
 	// encoded coordinates, then you need to use one of these options.
 	// Of course, pro-R or pro-S can only be assigned, if one of the bonds
 	// of the pro-chiral center is a stereo bond, which, of course,
 	// will be recognized as an over-specified stereo feature.
 
-	// Consider diastereotopic/enantiotopic atoms uniquely for atom ranking
-	public static final int CONSIDER_DIASTEREOTOPICITY = 2;
-	public static final int CONSIDER_ENANTIOTOPICITY = 4;
+	// Consider both diastereotopic and enantiotopic atoms as being different when creating the symmetry rank
+	public static final int CONSIDER_STEREOHETEROTOPICITY = 2;
 
-	// Consider both diastereotopic and enantiotopic atoms uniquely for atom ranking
-	public static final int CONSIDER_STEREOHETEROTOPICITY = CONSIDER_DIASTEREOTOPICITY | CONSIDER_ENANTIOTOPICITY;
-	
 	// Consider custom atom labels for atom ranking and encode them into idcodes
 	public static final int ENCODE_ATOM_CUSTOM_LABELS = 8;
 
@@ -93,6 +90,26 @@ public class Canonizer {
 	// the given configuration within all OR groups.
 	public static final int DISTINGUISH_RACEMIC_OR_GROUPS = 256;
 
+	// If we have fragments instead of molecules, then unused valences are not meant to be
+	// filled by implicit hydrogen atoms. That means that atoms may have free valences.
+	// If two otherwise equivalent (symmetrical) atoms have
+	// free valences, then these may differ in the context of a super-structure match.
+	// A stereo center in the super-structure may not be a stereo center in the fragment alone.
+	// Same is true for stereo bonds. To discover all potential stereo features within a
+	// substructure fragment use more CONSIDER_FREE_VALENCES, which breaks the ties
+	// between equivalent atoms that have free valences.
+	public static final int TIE_BREAK_FREE_VALENCE_ATOMS = 512;
+
+	// ENCODE_ATOM_CUSTOM_LABELS (above) causes customs labels to encode into the idcode in
+	// a canonical way, i.e. the label is considered when ranking. Two otherwise symmetrical
+	// atoms are considered different, if one has a custom label, or both have different custom
+	// labels. The ENCODE_ATOM_CUSTOM_LABELS_WITHOUT_RANKING option does not consider such
+	// atoms being different. This option can be used to mark an atom witghout influencing
+	// ranking and graph generation. This is typically used for diagnostics.
+	public static final int ENCODE_ATOM_CUSTOM_LABELS_WITHOUT_RANKING = 1024;
+
+	public static final int NEGLECT_ANY_STEREO_INFORMATION = 2048;
+
 	protected static final int cIDCodeVersion2 = 8;
 		// productive version till May 2006 based on the molfile version 2
 
@@ -113,19 +130,23 @@ public class Canonizer {
 	protected static final int cParity1Or = 6;
 	protected static final int cParity2Or = 7;
 
-	public static final int ATOM_BITS = 16;
-	public static final int MAX_ATOMS = 0xFFFF;
-	public static final int MAX_BONDS = 0xFFFF;
+	private static final int CALC_PARITY_MODE_PARITY = 1;
+	private static final int CALC_PARITY_MODE_PRO_PARITY = 2;
+	private static final int CALC_PARITY_MODE_IN_SAME_FRAGMENT = 3;
+
+//	public static final int mAtomBits = 16;
+//	public static final int MAX_ATOMS = 0xFFFF;
+//	public static final int MAX_BONDS = 0xFFFF;
 
 	private StereoMolecule mMol;
 	private int[] mCanRank;
 	private int[] mCanRankBeforeTieBreaking;
 	private int[] mPseudoTHGroup;
 	private int[] mPseudoEZGroup;
-	private byte[] mTHParity;
-	private byte[] mEZParity;
-	private byte[] mTHConfiguration;	// is tetrahedral parity based on atom numbers in graph
-	private byte[] mEZConfiguration;	// is double bond parity based on atom numbers in graph
+	private byte[] mTHParity;	        // is tetrahedral parity based on atom symmetry ranks
+	private byte[] mEZParity;           // is double bond parity based on atom symmetry ranks
+	private byte[] mTHConfiguration;	// is tetrahedral parity based on atom indexes in canonical graph
+	private byte[] mEZConfiguration;	// is double bond parity based on atom indexes in canonical graph
 	private byte[] mTHCIPParity;
 	private byte[] mEZCIPParity;
 	private byte[] mTHESRType;
@@ -137,6 +158,7 @@ public class Canonizer {
 	private CanonizerMesoHelper mMesoHelper;
 	private boolean mIsMeso,mStereoCentersFound;
 	private boolean[] mIsStereoCenter;  // based on extended stereo ranking, i.e. considering ESR type and group
+	private boolean[] mTHParityIsMesoInverted;  // whether the atom's parity must be inverted in the idcode because of meso fragment parity normalization
 	private boolean[] mTHParityNeedsNormalization;
 	private boolean[] mTHESRTypeNeedsNormalization;
 	private boolean[] mTHParityRoundIsOdd;
@@ -155,16 +177,16 @@ public class Canonizer {
 	private boolean mEncodeAvoid127;
 
 	private boolean mGraphGenerated;
-	private int mGraphRings;
+	private int mGraphRings,mFeatureBlock;
 	private int[] mGraphAtom;
 	private int[] mGraphIndex;
 	private int[] mGraphBond;
 	private int[] mGraphFrom;
 	private int[] mGraphClosure;
 
-	private String		    mIDCode,mCoordinates,mMapping;
+	private String		    mIDCode, mEncodedCoords,mMapping;
 	private StringBuilder	mEncodingBuffer;
-	private	int				mEncodingBitsAvail,mEncodingTempData,mMaxConnAtoms;
+	private	int				mEncodingBitsAvail,mEncodingTempData,mAtomBits,mMaxConnAtoms;
 
 	/**
 	 * Runs a canonicalization procedure for the given molecule that creates unique atom ranks,
@@ -188,39 +210,36 @@ public class Canonizer {
 	 * @param mode 0 or one or more of CONSIDER...TOPICITY, CREATE..., ENCODE_ATOM_CUSTOM_LABELS, ASSIGN_PARITIES_TO_TETRAHEDRAL_N, COORDS_ARE_3D
 	 */
 	public Canonizer(StereoMolecule mol, int mode) {
-		if (mol.getAllAtoms()>MAX_ATOMS)
-			throw new IllegalArgumentException("Cannot canonize a molecule having more than "+MAX_ATOMS+" atoms");
-		if (mol.getAllBonds()>MAX_BONDS)
-			throw new IllegalArgumentException("Cannot canonize a molecule having more than "+MAX_BONDS+" bonds");
+//		if (mol.getAllAtoms()>MAX_ATOMS)
+//			throw new IllegalArgumentException("Cannot canonize a molecule having more than "+MAX_ATOMS+" atoms");
+//		if (mol.getAllBonds()>MAX_BONDS)
+//			throw new IllegalArgumentException("Cannot canonize a molecule having more than "+MAX_BONDS+" bonds");
 
 		mMol = mol;
 		mMode = mode;
 
 		mMol.ensureHelperArrays(Molecule.cHelperRings);
-		canFindNitrogenQualifyingForParity();
+		mAtomBits = getNeededBits(mMol.getAtoms());
 
-		mZCoordinatesAvailable = ((mode & COORDS_ARE_3D) != 0);
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0)
+			canFindNitrogenQualifyingForParity();
 
-		if (!mZCoordinatesAvailable) {
-			for (int atom=0; atom<mMol.getAllAtoms(); atom++) {
-				if (mMol.getAtomZ(atom) != 0.0) {
-					mZCoordinatesAvailable = true;
-					break;
-					}
-				}
+		mZCoordinatesAvailable = ((mode & COORDS_ARE_3D) != 0) || mMol.is3D();
+
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+			mTHParity = new byte[mMol.getAtoms()];
+			mTHParityIsPseudo = new boolean[mMol.getAtoms()];
+			mTHParityRoundIsOdd = new boolean[mMol.getAtoms()];
+			mEZParity = new byte[mMol.getBonds()];
+			mEZParityRoundIsOdd = new boolean[mMol.getBonds()];
+			mEZParityIsPseudo = new boolean[mMol.getBonds()];
 			}
-
-		mTHParity = new byte[mMol.getAtoms()];
-		mTHParityIsPseudo = new boolean[mMol.getAtoms()];
-		mTHParityRoundIsOdd = new boolean[mMol.getAtoms()];
-		mEZParity = new byte[mMol.getBonds()];
-		mEZParityRoundIsOdd = new boolean[mMol.getBonds()];
-		mEZParityIsPseudo = new boolean[mMol.getBonds()];
 
 		mCIPParityNoDistinctionProblem = false;
 
 		canInitializeRanking();
-		canRankStereo();
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0)
+			canRankStereo();
 		canRankFinal();
 //		if (mCIPParityNoDistinctionProblem)
 //			System.out.println("No distinction applying CIP rules: "+getIDCode()+" "+getEncodedCoordinates());
@@ -233,9 +252,10 @@ public class Canonizer {
 	/**
 	 * Locate those tetrahedral nitrogen atoms with at least 3 neighbors that
 	 * qualify for tetrahedral parity calculation because:<br>
-	 * - they are quarternary nitrogen atoms<br>
-	 * or - their configuration inversion is hindered in a polycyclic structure<br>
-	 * or - flag ASSIGN_PARITIES_TO_TETRAHEDRAL_N is set
+	 * - being a quarternary nitrogen atom<br>
+	 * - being an aziridin nitrogen atom<br>
+	 * - the configuration inversion is hindered in a polycyclic structure<br>
+	 * - flag ASSIGN_PARITIES_TO_TETRAHEDRAL_N is set
 	 */
 	private void canFindNitrogenQualifyingForParity() {
 		mNitrogenQualifiesForParity = new boolean[mMol.getAtoms()];
@@ -246,6 +266,11 @@ public class Canonizer {
 					continue;
 					}
 				if (mMol.getConnAtoms(atom) == 3) {
+					if (mMol.getAtomRingSize(atom) == 3) {
+						mNitrogenQualifiesForParity[atom] = true;
+						continue;
+						}
+
 					if (mMol.getAtomCharge(atom) == 1) {
 						mNitrogenQualifiesForParity[atom] = true;
 						continue;
@@ -259,136 +284,9 @@ public class Canonizer {
 						continue;
 						}
 
-					if (mMol.getAtomRingBondCount(atom) != 3)
+					if (mMol.isPyramidalBridgeHead(atom)) {
+						mNitrogenQualifiesForParity[atom] = true;
 						continue;
-
-					// For any neutral nitrogen with three ring bonds
-					// we find the smallest ring. If this is not larger than 7 members
-					// then we find that connBond, which does not belong to that ring.
-					// The we find the bridge size (atom count) to where it touches the smallest ring.
-					// We also find the path length from the touch point on the smallest ring back
-					// to the nitrogen atom.
-					int smallRingSize = mMol.getAtomRingSize(atom);
-					if (smallRingSize > 7)
-						continue;
-
-					RingCollection ringSet = mMol.getRingSet();
-					int smallRingNo = 0;
-					while (smallRingNo<ringSet.getSize()) {
-						if (ringSet.getRingSize(smallRingNo) == smallRingSize
-						 && ringSet.isAtomMember(smallRingNo, atom))
-							break;
-
-						smallRingNo++;
-						}
-
-					int firstBridgeAtom = -1;
-					int firstBridgeBond = -1;
-					for (int i=0; i<3; i++) {
-						int connBond = mMol.getConnBond(atom, i);
-						if (!ringSet.isBondMember(smallRingNo, connBond)) {
-							firstBridgeAtom = mMol.getConnAtom(atom, i);
-							firstBridgeBond = connBond;
-							break;
-							}
-						}
-					
-					boolean[] neglectBond = new boolean[mMol.getBonds()];
-					neglectBond[firstBridgeBond] = true;
-					int[] pathAtom = new int[11];
-					int pathLength = mMol.getPath(pathAtom, firstBridgeAtom, atom, 10, neglectBond);
-					if (pathLength == -1)
-						continue;
-
-					int bridgeAtomCount = 1;
-					while (!ringSet.isAtomMember(smallRingNo, pathAtom[bridgeAtomCount]))
-						bridgeAtomCount++;
-
-					int bondCountToBridgeHead = pathLength - bridgeAtomCount;
-
-					int bridgeHead = pathAtom[bridgeAtomCount];
-
-					if (smallRingSize == 6 && bondCountToBridgeHead == 2 && bridgeAtomCount == 3) {
-						if (mMol.getAtomRingBondCount(pathAtom[1]) >= 3) {
-							boolean isAdamantane = false;
-							int[] ringAtom = ringSet.getRingAtoms(smallRingNo);
-							for (int i=0; i<6; i++) {
-								if (atom == ringAtom[i]) {
-									int potentialOtherBridgeHeadIndex = ringSet.validateMemberIndex(smallRingNo,
-											(bridgeHead == ringAtom[ringSet.validateMemberIndex(smallRingNo, i+2)]) ? i-2 : i+2);
-									int potentialOtherBridgeHead = ringAtom[potentialOtherBridgeHeadIndex];
-									if (mMol.getAtomRingBondCount(potentialOtherBridgeHead) >= 3
-									 && mMol.getPathLength(pathAtom[1], potentialOtherBridgeHead, 2, null) == 2)
-										isAdamantane = true;
-									break;
-									}
-								}
-							if (isAdamantane) {
-								mNitrogenQualifiesForParity[atom] = true;
-								continue;
-								}
-							}
-						}
-
-					boolean bridgeHeadIsFlat = (mMol.getAtomPi(bridgeHead) == 1
-											 || mMol.isAromaticAtom(bridgeHead)
-											 || mMol.isFlatNitrogen(bridgeHead));
-					boolean bridgeHeadMayInvert = !bridgeHeadIsFlat
-												&& mMol.getAtomicNo(bridgeHead) == 7
-												&& mMol.getAtomCharge(bridgeHead) != 1;
-
-					if (bondCountToBridgeHead == 1) {
-						if (!bridgeHeadIsFlat && !bridgeHeadMayInvert && smallRingSize <= 4 && bridgeAtomCount <= 3)
-							mNitrogenQualifiesForParity[atom] = true;
-						continue;
-						}
-
-					switch (smallRingSize) {
-					// case 3 is fully handled
-					case 4:	// must be bondCountToBridgeHead == 2
-						if (!bridgeHeadIsFlat && !bridgeHeadMayInvert) {
-							if (bridgeAtomCount <= 4)
-								mNitrogenQualifiesForParity[atom] = true;
-							}
-						break;
-					case 5:	// must be bondCountToBridgeHead == 2
-						if (bridgeHeadMayInvert) {
-							if (bridgeAtomCount <= 3)
-								mNitrogenQualifiesForParity[atom] = true;
-							}
-						else if (!bridgeHeadIsFlat) {
-							if (bridgeAtomCount <= 4)
-								mNitrogenQualifiesForParity[atom] = true;
-							}
-						break;
-					case 6:
-						if (bondCountToBridgeHead == 2) {
-							if (bridgeHeadIsFlat) {
-								if (bridgeAtomCount <= 4)
-									mNitrogenQualifiesForParity[atom] = true;
-								}
-							else if (!bridgeHeadMayInvert) {
-								if (bridgeAtomCount <= 3)
-									mNitrogenQualifiesForParity[atom] = true;
-								}
-							}
-						else if (bondCountToBridgeHead == 3) {
-							if (bridgeHeadIsFlat) {
-								if (bridgeAtomCount <= 6)
-									mNitrogenQualifiesForParity[atom] = true;
-								}
-							else {
-								if (bridgeAtomCount <= 4)
-									mNitrogenQualifiesForParity[atom] = true;
-								}
-							}
-						break;
-					case 7:
-						if (bondCountToBridgeHead == 3) {
-							if (bridgeAtomCount <= 3)
-								mNitrogenQualifiesForParity[atom] = true;
-							}
-						break;
 						}
 					}
 				}
@@ -441,9 +339,7 @@ public class Canonizer {
 	private void canRankStereo() {
 		// Store ranking state before considering stereo information
 		int noOfRanksWithoutStereo = mNoOfRanks;
-		int[] canRankWithoutStereo = new int[mMol.getAtoms()];
-		for (int atom=0; atom<mMol.getAtoms(); atom++)
-			canRankWithoutStereo[atom] = mCanRank[atom];
+		int[] canRankWithoutStereo = Arrays.copyOf(mCanRank, mMol.getAtoms());
 
 		// Calculate the Cahn-Ingold-Prelog stereo assignments based
 		// on drawn stereo bonds neglecting any ESR group assignments
@@ -525,8 +421,13 @@ System.out.println();
 		// schedule all atoms of any ESR group (AND and OR) to be normalized
 		// concerning their parities, in order to be able to consider the
 		// parities for ranking and ,thus, for recursive parity determination.
+		mTHParityIsMesoInverted = new boolean[mMol.getAtoms()];
 		mTHParityNeedsNormalization = new boolean[mMol.getAtoms()];
-		mTHParityNormalizationGroupList = new ArrayList<int[]>();
+		mTHParityNormalizationGroupList = new ArrayList<>();
+
+		if (mMesoHelper != null)
+			mMesoHelper.normalizeESRGroupSwappingAndRemoval(mCanRank);
+
 		canMarkESRGroupsForParityNormalization();
 
 		// rollback stereo information
@@ -549,47 +450,46 @@ System.out.println();
 
 
 	private void canRankFinal() {
+		// Atoms, which still share an equal rank, can now be considered symmetrical
+		// regarding connectivity and stereo features excluding stereo hetero-topicity.
+		if ((mMode & CREATE_SYMMETRY_RANK) != 0
+		 && (mMode & CONSIDER_STEREOHETEROTOPICITY) == 0) {
+			mCanRankBeforeTieBreaking = Arrays.copyOf(mCanRank, mMol.getAtoms());
+			}
+
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
 			// locate atom differences due to pro-chiral or pro-E/Z location and
 			// detect for every proTH- or proEZ-parity whether pro-atoms are
 			// in same fragment as the pro-chiral-center or double-bond, respectively
-		mProTHAtomsInSameFragment = new boolean[mMol.getAtoms()];
-		mProEZAtomsInSameFragment = new boolean[mMol.getBonds()];
+			mProTHAtomsInSameFragment = new boolean[mMol.getAtoms()];
+			mProEZAtomsInSameFragment = new boolean[mMol.getBonds()];
 
-		if ((mMode & CONSIDER_STEREOHETEROTOPICITY) != 0) {
-			for (int atom=0; atom<mMol.getAtoms(); atom++) {
-				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS+12, mCanRank[atom] << 12);
+			// If we consider stereo information then we try in a reproducible way to distinguish symmetrical atoms
+			// considering enantio- or diastereo-topicity, i.e. we check for pro-R or -S atoms with hitherto equal ranks.
+			if (mNoOfRanks < mMol.getAtoms()) {
+				canBreakTiesByHeteroTopicity();
+
+				if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+					canNormalizeGroupParities();
+					if (mMesoHelper != null)
+						mMesoHelper.normalizeESRGroupSwappingAndRemoval(mCanRank);
+					}
 				}
 			}
-		if (mNoOfRanks < mMol.getAtoms()) {
-			int proParities = 0;
-			for (int atom=0; atom<mMol.getAtoms(); atom++)
-				if (canCalcTHParity(atom, true))
-					proParities++;
-			for (int bond=0; bond<mMol.getBonds(); bond++)
-				if (canCalcEZParity(bond, true))
-					proParities++;
-			}
-		if ((mMode & CONSIDER_STEREOHETEROTOPICITY) != 0) {
-			mNoOfRanks = canPerformRanking();
-			}
 
-			// Atoms, which still share an equal rank, can now be
-			// considered symmetrical considering their connectivity
-			// and stereo features.
-		if ((mMode & CREATE_SYMMETRY_RANK) != 0) {
-			mCanRankBeforeTieBreaking = new int[mMol.getAtoms()];
-			for (int atom=0; atom<mMol.getAtoms(); atom++)
-				mCanRankBeforeTieBreaking[atom] = mCanRank[atom];
-			}
+		// Atoms, which still share an equal rank now, can now be considered symmetrical
+		// regarding connectivity and stereo features including stereo hetero-topicity.
+		if (mCanRankBeforeTieBreaking == null
+		 && (mMode & CREATE_SYMMETRY_RANK) != 0
+		 && (mMode & CONSIDER_STEREOHETEROTOPICITY) != 0)
+			mCanRankBeforeTieBreaking = Arrays.copyOf(mCanRank, mMol.getAtoms());
 
-
-			// ############### begin tie breaking ##############
-			// i.e. if not all atoms have a different rank yet, then
-			// select randomly one atom of those atoms that share the
-			// lowest rank and consider it higher ranked. Propagate the
-			// new ranking assymetry through the molecule (performFullRanking()).
-			// Repeat these steps until all atoms have a different rank.
+		// ############### begin tie breaking ##############
+		// i.e. if not all atoms have a different rank yet, then
+		// select randomly one atom of those atoms that share the
+		// lowest rank and consider it higher ranked. Propagate the
+		// new ranking asymmetry through the molecule (performFullRanking()).
+		// Repeat these steps until all atoms have a different rank.
 
 //System.out.println("start of tie breaking");
 /*
@@ -598,39 +498,25 @@ System.out.println("mTHParity["+atom+"] = "+mTHParity[atom]+" roundIsOdd = "+mTH
 for (int bond=0; bond<mMol.getBonds(); bond++)
 System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 */
+		// If no further resolution can be done using different hetero-topicity, then we promote one atom of lowest shared rank randomly.
 		while (mNoOfRanks < mMol.getAtoms()) {
-			for (int atom=0; atom<mMol.getAtoms(); atom++) {
-				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS+1, 2*mCanRank[atom]);
+			canBreakTiesRandomly();
+
+			if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+				canNormalizeGroupParities();
+				if (mMesoHelper != null)
+					mMesoHelper.normalizeESRGroupSwappingAndRemoval(mCanRank);
 				}
-
-			// promote randomly one atom of lowest shared rank.
-			int[] rankCount = new int[mNoOfRanks+1];
-			for (int atom=0; atom<mMol.getAtoms(); atom++)
-				rankCount[mCanRank[atom]]++;
-			int rank = 1;
-			while (rankCount[rank] == 1)
-				rank++;
-
-			for (int atom=0; atom<mMol.getAtoms(); atom++) {
-				if (mCanRank[atom] == rank) {
-					mCanBase[atom].add(1);
-					break;
-					}
-				}
-
-			mNoOfRanks = canPerformRanking();
-			canNormalizeGroupParities();
-			if (mMesoHelper != null)
-				mMesoHelper.normalizeESRGroupSwappingAndRemoval(mCanRank);
 			}
 
 			// normalize those group's parities that could not be normalized before tie-breaking
-		canNormalizeGroupParities();
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+			canNormalizeGroupParities();
 
 			// detect all not yet discovered pseudo-parities
-		canFindPseudoParities();
-		flagStereoProblems();
+			canFindPseudoParities();
+			flagStereoProblems();
+			}
 /*
 for (int atom=0; atom<mMol.getAtoms(); atom++)
 System.out.println("mTHParity["+atom+"] = "+mTHParity[atom]+" roundIsOdd = "+mTHParityRoundIsOdd+" pseudo = "+mTHParityIsPseudo[atom]);
@@ -639,6 +525,128 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 */
 		}
 
+
+/*	private boolean canBreakTiesByHeteroTopicity() {
+		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			mCanBase[atom].init(atom);
+			mCanBase[atom].add((2*mAtomBits+4), (long)mCanRank[atom] << (mAtomBits+4));
+			}
+
+		boolean found = false;
+		for (int atom=0; atom<mMol.getAtoms(); atom++)
+			found |= canCalcTHParity(atom, true);
+		for (int bond=0; bond<mMol.getBonds(); bond++)
+			found |= canCalcEZParity(bond, true);
+
+		if (found)
+			mNoOfRanks = canPerformRanking();
+
+		return found;
+		}*/
+
+	private boolean canBreakTiesByHeteroTopicity() {
+		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			mCanBase[atom].init(atom);
+			mCanBase[atom].add((2*mAtomBits+4), (long)mCanRank[atom] << (mAtomBits+4));
+			}
+
+		// create in-same-fragment information for all heterotopic atoms
+		boolean found = false;
+		for (int atom=0; atom<mMol.getAtoms(); atom++)
+			found |= canCalcTHParity(atom, CALC_PARITY_MODE_IN_SAME_FRAGMENT);
+		for (int bond=0; bond<mMol.getBonds(); bond++)
+			found |= canCalcEZParity(bond, CALC_PARITY_MODE_IN_SAME_FRAGMENT);
+
+		if (!found)
+			return false;
+
+		while (mNoOfRanks < mMol.getAtoms()) {
+			found = canInnerBreakTiesByHeteroTopicity();
+			if (!found)
+				break;
+
+			canNormalizeGroupParities();
+			if (mMesoHelper != null)
+				mMesoHelper.normalizeESRGroupSwappingAndRemoval(mCanRank);
+			}
+
+		return true;
+		}
+
+
+	private boolean canInnerBreakTiesByHeteroTopicity() {
+		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			mCanBase[atom].init(atom);
+			mCanBase[atom].add((2*mAtomBits+4), (long)mCanRank[atom] << (mAtomBits+4));
+			}
+
+		for (int rank=1; rank<=mNoOfRanks; rank++) {
+			boolean found = false;
+			for (int atom=0; atom<mMol.getAtoms(); atom++)
+				if (mCanRank[atom] == rank)
+					found |= canCalcTHParity(atom, CALC_PARITY_MODE_PRO_PARITY);
+
+			if (found) {
+				int oldRanks = mNoOfRanks;
+				mNoOfRanks = canPerformRanking();
+				if (mNoOfRanks != oldRanks)
+					return true;
+
+				for (int atom=0; atom<mMol.getAtoms(); atom++) {
+					mCanBase[atom].init(atom);
+					mCanBase[atom].add((2*mAtomBits+4), (long)mCanRank[atom] << (mAtomBits+4));
+					}
+				}
+			}
+
+		CanonizerBond[] rankedBond = new CanonizerBond[mMol.getBonds()];
+		for (int i = 0; i<rankedBond.length; i++)
+			rankedBond[i] = new CanonizerBond(mCanRank[mMol.getBondAtom(0, i)], mCanRank[mMol.getBondAtom(1, i)], i);
+		Arrays.sort(rankedBond);
+
+		for (int i=0; i<rankedBond.length; i++) {
+			if (canCalcEZParity(rankedBond[i].bond, CALC_PARITY_MODE_PRO_PARITY)) {
+				while (i+1 < rankedBond.length && rankedBond[i].compareTo(rankedBond[i+1]) == 0)
+					canCalcEZParity(rankedBond[++i].bond, CALC_PARITY_MODE_PRO_PARITY);
+
+				int oldRanks = mNoOfRanks;
+				mNoOfRanks = canPerformRanking();
+				if (mNoOfRanks != oldRanks)
+					return true;
+
+				for (int atom=0; atom<mMol.getAtoms(); atom++) {
+					mCanBase[atom].init(atom);
+					mCanBase[atom].add((2*mAtomBits+4), (long)mCanRank[atom] << (mAtomBits+4));
+					}
+				}
+			}
+
+		return false;
+		}
+
+	private void canBreakTiesRandomly() {
+		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			mCanBase[atom].init(atom);
+			mCanBase[atom].add(mAtomBits+1, 2*mCanRank[atom]);
+			}
+
+		// promote randomly one atom of lowest shared rank.
+		int[] rankCount = new int[mNoOfRanks+1];
+		for (int atom=0; atom<mMol.getAtoms(); atom++)
+			rankCount[mCanRank[atom]]++;
+		int rank = 1;
+		while (rankCount[rank] == 1)
+			rank++;
+
+		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			if (mCanRank[atom] == rank) {
+				mCanBase[atom].add(1);
+				break;
+				}
+			}
+
+		mNoOfRanks = canPerformRanking();
+		}
 
 	private void initializeParities(int noOfRanksWithoutStereo, int[] canRankWithoutStereo) {
 		mNoOfRanks = noOfRanksWithoutStereo;
@@ -653,6 +661,11 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 			}
 		}
 
+	/**
+	 * This ranks all atoms based on inherent atom properties, their neighbourhood
+	 * and connecting bond types until all atom and connectivity differences have
+	 * caused different atom ranks. Only stereo chemistry is not considered in this step.
+	 */
 	private void canInitializeRanking() {
 		boolean bondQueryFeaturesPresent = false;
 		if (mMol.isFragment()) {
@@ -668,8 +681,8 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		for (int atom=0; atom<mMol.getAtoms(); atom++)
 			mMaxConnAtoms = Math.max(mMaxConnAtoms, mMol.getConnAtoms(atom)+mMol.getMetalBondedConnAtoms(atom));
 		int baseValueSize = Math.max(2, bondQueryFeaturesPresent ?
-				(62 + ATOM_BITS + mMaxConnAtoms * (ATOM_BITS+Molecule.cBondQFNoOfBits)) / 63
-			  : (62 + ATOM_BITS + mMaxConnAtoms * (ATOM_BITS+5)) / 63);
+				(62 + mAtomBits + mMaxConnAtoms * (mAtomBits+Molecule.cBondQFNoOfBits)) / 63
+			  : (62 + mAtomBits + mMaxConnAtoms * (mAtomBits+5)) / 63);
 
 		mCanRank = new int[mMol.getAllAtoms()];
 		mCanBase = new CanonizerBaseValue[mMol.getAtoms()];
@@ -709,7 +722,7 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		if (mNoOfRanks < mMol.getAtoms()) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 				int[] bondRingSize = new int[mMol.getConnAtoms(atom)];
 				for (int i=0; i<mMol.getConnAtoms(atom); i++) {
 					bondRingSize[i] = mCanRank[mMol.getConnAtom(atom, i)] << 5;
@@ -717,9 +730,9 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 					}
 				Arrays.sort(bondRingSize);
 				for (int i=mMaxConnAtoms; i>bondRingSize.length; i--)
-					mCanBase[atom].add(ATOM_BITS+5, 0);
+					mCanBase[atom].add(mAtomBits+5, 0);
 				for (int i=bondRingSize.length-1; i>=0; i--)
-					mCanBase[atom].add(ATOM_BITS+5, bondRingSize[i]);
+					mCanBase[atom].add(mAtomBits+5, bondRingSize[i]);
 				}
 			mNoOfRanks = canPerformRanking();
 			}
@@ -727,7 +740,7 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		if (atomListFound && mNoOfRanks < mMol.getAtoms()) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 				int[] atomList = mMol.getAtomList(atom);
 				int listLength = (atomList == null) ? 0 : Math.min(12, atomList.length);
 				for (int i=12; i>listLength; i--)
@@ -742,7 +755,7 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		if (bondQueryFeaturesPresent && mNoOfRanks < mMol.getAtoms()) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 				long[] bondQFList = new long[mMol.getConnAtoms(atom)+mMol.getMetalBondedConnAtoms(atom)];
 				int index = 0;
 				for (int i=0; i<mMol.getAllConnAtomsPlusMetalBonds(atom); i++) {
@@ -755,9 +768,9 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 					}
 				Arrays.sort(bondQFList);
 				for (int i=mMaxConnAtoms; i>bondQFList.length; i--)
-					mCanBase[atom].add(ATOM_BITS+Molecule.cBondQFNoOfBits, 0);
+					mCanBase[atom].add(mAtomBits+Molecule.cBondQFNoOfBits, 0);
 				for (int i=bondQFList.length-1; i>=0; i--)
-					mCanBase[atom].add(ATOM_BITS+Molecule.cBondQFNoOfBits, bondQFList[i]);
+					mCanBase[atom].add(mAtomBits+Molecule.cBondQFNoOfBits, bondQFList[i]);
 				}
 			mNoOfRanks = canPerformRanking();
 			}
@@ -772,8 +785,8 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 				int rank = (mMol.getAtomCustomLabel(atom) == null) ?
 						   0 : 1+list.getListIndex(mMol.getAtomCustomLabel(atom));
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
-				mCanBase[atom].add(ATOM_BITS, rank);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, rank);
 				}
 
 			mNoOfRanks = canPerformRanking();
@@ -782,13 +795,47 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		if ((mMode & ENCODE_ATOM_SELECTION) != 0 && mNoOfRanks < mMol.getAtoms()) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 				mCanBase[atom].add(1, mMol.isSelectedAtom(atom) ? 1 : 0);
 				}
 
 			mNoOfRanks = canPerformRanking();
 			}
-//System.out.println("after initial ranking");
+
+		if ((mMode & TIE_BREAK_FREE_VALENCE_ATOMS) != 0 && mMol.isFragment())
+			canBreakFreeValenceAtomTies();
+
+		//System.out.println("after initial ranking");
+		}
+
+
+	private void canBreakFreeValenceAtomTies() {
+		while (true) {
+			boolean[] isFreeValenceRank = new boolean[mNoOfRanks+1];
+			int highestSharedFreeValenceRank = -1;
+			for (int atom=0; atom<mMol.getAtoms(); atom++) {
+				if (mMol.getLowestFreeValence(atom) != 0) {
+					if (isFreeValenceRank[mCanRank[atom]] && highestSharedFreeValenceRank < mCanRank[atom])
+						highestSharedFreeValenceRank = mCanRank[atom];
+					isFreeValenceRank[mCanRank[atom]] = true;
+					}
+				}
+
+			if (highestSharedFreeValenceRank == -1)
+				break;
+
+			int increment = 0;
+			for (int atom=0; atom<mMol.getAtoms(); atom++) {
+				int value = 0;
+				if (mCanRank[atom] == highestSharedFreeValenceRank)
+					value = ++increment;
+				mCanBase[atom].init(atom);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
+				mCanBase[atom].add(8, value);
+				}
+
+			mNoOfRanks = canPerformRanking();
+			}
 		}
 
 
@@ -805,12 +852,14 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		}
 
 
+	/**
+	 * Detects all stereo centers and their parities while considering
+	 * absolute ESR group numbers and the drawn configuration of stereo
+	 * centers within OR or AND groups. The calculated parities are not
+	 * canonized and only intended for meso fragment detection and complete
+	 * detection of all stereo centers.
+	 */
 	private void canRecursivelyFindAllParities() {
-		// detects all stereo centers and their parities while considering 
-		// absolute ESR group numbers and the drawn configuration of stereo
-		// centers within OR or AND groups. The calculated parities are not
-		// canonized and only intended for meso fragment detection and complete
-		// detection of all stereo centers.
 		mIsOddParityRound = true;
 
 		// Find absolute stereo features based on current ranking
@@ -822,7 +871,7 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		while ((mNoOfRanks < mMol.getAtoms()) && paritiesFound) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 
 					// In case of stereo centers with ESR type!=ABS then consider
 					// group number and type in addition to the parity.
@@ -861,11 +910,12 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		}
 
 
+	/**
+	 * Detects stereo center's parities considering the drawn configuration.
+	 * Any ESR group assignments are neglected. From these parities the CIP
+	 * assignments are calculated. These may be for display purposes only.
+	 */
 	private void canRecursivelyFindCIPParities() {
-		// Detects stereo center's parities considering the drawn configuration.
-		// Any ESR group assignments are neglected. From these parities the CIP
-		// assignments are calculated. These may be for display purposes only.
-
 		mIsOddParityRound = true;
 
 		// Find absolute stereo features based on current ranking
@@ -878,7 +928,7 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		while ((mNoOfRanks < mMol.getAtoms()) && paritiesFound) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS+4, (mCanRank[atom] << 4)
+				mCanBase[atom].add(mAtomBits+4, ((long)mCanRank[atom] << 4)
 											  | (mTHParity[atom] << 2));
 				}
 
@@ -897,10 +947,12 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 		}
 
 
+	/**
+	 * Detects parities for full normalization and idcode generation
+	 * (does not consider absolute group numbers nor drawn configuration of
+	 *  stereo centers within OR or AND groups, before they are normalized)
+	 */
 	private void canRecursivelyFindCanonizedParities() {
-			// detects parities for full normalization and idcode generation
-			// (does not consider absolute group numbers nor drawn configuration of
-			//  stereo centers within OR or AND groups, before they are normalized)
 		mIsOddParityRound = true;
 
 		int[][][] esrGroupMember = compileESRGroupMembers();
@@ -923,25 +975,33 @@ System.out.println("mEZParity["+bond+"] = "+mEZParity[bond]);
 
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				mCanBase[atom].init(atom);
-				mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+				mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 				mCanBase[atom].add(20, 0);
 
-					// Certain groups of parities require normalization before
-					// the definite parity values can be considered here. These
-					// groups of stereo centers consist of all ESR groups of type
-					// OR and AND, but also of independent ABS atoms in meso
-					// fragments.
-					// If a stereo center is marked to require normalization
-					// then only consider the ESR type and the rank of the group.
+				// Certain groups of parities require normalization before
+				// the definite parity values can be considered here. These
+				// groups of stereo centers consist of all ESR groups of type
+				// OR and AND, but also of independent ABS atoms in meso
+				// fragments.
+				// If a stereo center is marked to require normalization
+				// then only consider the ESR type and the rank of the group.
 
 				if (!mTHESRTypeNeedsNormalization[atom]
 				 && mTHESRType[atom] != Molecule.cESRTypeAbs)
 					mCanBase[atom].add((mTHESRType[atom] << 18)
-									+  (groupRank[(mTHESRType[atom] == Molecule.cESRTypeAnd) ? 0 : 1][mTHESRGroup[atom]] << 8));
+							+ ((long)groupRank[(mTHESRType[atom] == Molecule.cESRTypeAnd) ? 0 : 1][mTHESRGroup[atom]] << 8));
 
-//				if (!mTHParityNeedsNormalization[atom])
-					mCanBase[atom].add(mTHParity[atom] << 4);
-				}
+//				if (!mTHParityNeedsNormalization[atom]) {
+					int parity = mTHParity[atom];
+					if (mTHParityIsMesoInverted[atom]) {
+						if (parity == Molecule.cAtomParity1)
+							parity = Molecule.cAtomParity2;
+						else if (parity == Molecule.cAtomParity2)
+							parity = Molecule.cAtomParity1;
+						}
+					mCanBase[atom].add(parity << 4);
+					}
+//				}
 
 // TODO consider groupRank for bonds
 			for (int bond=0; bond<mMol.getBonds(); bond++) {
@@ -990,10 +1050,11 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 		return esrGroupMember;
 		}
 
-
 	/**
-	 * This normalizes relative parities within any ESR group
-	 * such that the highest ranking atom or bond gets parity2
+	 * This determines for relative parities within any ESR group
+	 * and for any meso fragment group, whether the
+	 * parity should be inverted for normalization in the idcode.
+	 * The rule is that the highest ranking atom or bond gets parity2
 	 * and the others are adapted accordingly.
 	 * @return
 	 */
@@ -1028,14 +1089,10 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 				}
 			if (allParitiesDetermined
 			 && maxRank != -1) {
-				for (int j=0; j<groupAtom.length; j++) {
-					int atom = groupAtom[j];
-					if (invertParities) {
-						if (mTHParity[atom] == Molecule.cAtomParity1)
-							mTHParity[atom] = Molecule.cAtomParity2;
-						else if (mTHParity[atom] == Molecule.cAtomParity2)
-							mTHParity[atom] = Molecule.cAtomParity1;
-						}
+				for (int atom:groupAtom) {
+					if ((mTHParity[atom] == Molecule.cAtomParity1
+					  || mTHParity[atom] == Molecule.cAtomParity2))
+						mTHParityIsMesoInverted[atom] = invertParities;
 					mTHParityNeedsNormalization[atom] = false;
 					}
 				mTHParityNormalizationGroupList.remove(groupAtom);
@@ -1145,7 +1202,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 	private boolean canFindParities(boolean doCIP) {
 		boolean ezFound = false;
 		for (int bond=0; bond<mMol.getBonds(); bond++)
-			if (canCalcEZParity(bond, false)) {
+			if (canCalcEZParity(bond, CALC_PARITY_MODE_PARITY)) {
 //System.out.println("found EZ parity:"+mEZParity[bond]+" bond:"+bond+" roundIsOdd:"+mIsOddParityRound);
 				mEZParityRoundIsOdd[bond] = mIsOddParityRound;
 				if (doCIP)
@@ -1154,7 +1211,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 				}
 		boolean thFound = false;
 		for (int atom=0; atom<mMol.getAtoms(); atom++)
-			if (canCalcTHParity(atom, false)) {
+			if (canCalcTHParity(atom, CALC_PARITY_MODE_PARITY)) {
 				mTHParityRoundIsOdd[atom] = mIsOddParityRound;
 				if (doCIP)
 					cipCalcTHParity(atom);
@@ -1283,8 +1340,8 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 		}
 	
 	private boolean canFindPseudoParities() {
-		boolean isFreshPseudoParityAtom[] = new boolean[mMol.getAtoms()];
-		boolean isFreshPseudoParityBond[] = new boolean[mMol.getBonds()];
+		boolean[] isFreshPseudoParityAtom = new boolean[mMol.getAtoms()];
+		boolean[] isFreshPseudoParityBond = new boolean[mMol.getBonds()];
 		int anyPseudoParityCount = 0;
 		boolean pseudoParity1Or2Found = false;
 
@@ -1296,7 +1353,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 		for (int atom=0; atom<mMol.getAtoms(); atom++) {
 			if (mProTHAtomsInSameFragment[atom]) {
 				if (!mTHParityIsPseudo[atom]) {
-					if (canCalcTHParity(atom, false)) {
+					if (canCalcTHParity(atom, CALC_PARITY_MODE_PARITY)) {
 						mTHParityIsPseudo[atom] = true;
 						isFreshPseudoParityAtom[atom] = true;
 						anyPseudoParityCount++;
@@ -1307,7 +1364,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 		for (int bond=0; bond<mMol.getBonds(); bond++) {
 			if (mProEZAtomsInSameFragment[bond]) {
 				if (!mEZParityIsPseudo[bond]) {
-					if (canCalcEZParity(bond, false)) {
+					if (canCalcEZParity(bond, CALC_PARITY_MODE_PARITY)) {
 						mEZParityIsPseudo[bond] = true;
 						isFreshPseudoParityBond[bond] = true;
 						anyPseudoParityCount++;
@@ -1458,7 +1515,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 		if (mFragmentList != null)
 			return;
 
-		mFragmentList = new ArrayList<CanonizerFragment>();
+		mFragmentList = new ArrayList<>();
 
 		int fragmentCount = 0;
 		int[] fragmentNo = new int[mMol.getAtoms()];
@@ -1471,7 +1528,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 				int fragmentAtoms = 1;
 				int fragmentBonds = 0;
 				fragmentNo[atom] = ++fragmentCount;
-				boolean bondHandled[] = new boolean[mMol.getBonds()];
+				boolean[] bondHandled = new boolean[mMol.getBonds()];
 				for (int current=0; current<fragmentAtoms; current++) {
 					for (int i=0; i<mMol.getConnAtoms(fragmentAtom[current]); i++) {
 						int connBond = mMol.getConnBond(fragmentAtom[current],i);
@@ -1516,7 +1573,7 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 
 
 	private void canCalcNextBaseValues() {
-		int	connRank[] = new int[mMaxConnAtoms];
+		int[] connRank = new int[mMaxConnAtoms];
 		for (int atom=0; atom<mMol.getAtoms(); atom++) {
 								// generate sorted list of ranks of neighbours
 			int neighbours = mMol.getConnAtoms(atom)+mMol.getMetalBondedConnAtoms(atom);
@@ -1540,11 +1597,11 @@ System.out.println("mCanBaseValue["+atom+"] = "+Long.toHexString(mCanBase[atom].
 				}
 
 			mCanBase[atom].init(atom);
-			mCanBase[atom].add(ATOM_BITS, mCanRank[atom]);
+			mCanBase[atom].add(mAtomBits, mCanRank[atom]);
 			for (int i=neighbours; i<mMaxConnAtoms; i++)
-				mCanBase[atom].add(ATOM_BITS + 1, 0);
+				mCanBase[atom].add(mAtomBits + 1, 0);
 			for (int i=0; i<neighbours; i++)
-				mCanBase[atom].add(ATOM_BITS + 1, connRank[i]);
+				mCanBase[atom].add(mAtomBits + 1, connRank[i]);
 			}
 		}
 
@@ -1573,12 +1630,10 @@ System.out.println("noOfRanks:"+canRank);
 	 * If calcProParity is true then this function calculates proparities of those atoms
 	 * adjacent to the stereo center rather than a parity of the stereo center itself.
 	 * @param atom
-	 * @param calcProParity if true then calculate pro-parities
+	 * @param mode whether to calculate parities, pro-parities, or determine whether heterotopic atoms are in same fragment
 	 * @return false if atom's mTHParity != 0; otherwise true if it finds and sets a parity other than 0
 	 */
-	private boolean canCalcTHParity(int atom, boolean calcProParity) {
-
-		//#		if (!calcProParity && mTHParity[atom] != 0)
+	private boolean canCalcTHParity(int atom, int mode) {
 		if (mTHParity[atom] != 0)
 			return false;
 
@@ -1592,7 +1647,7 @@ System.out.println("noOfRanks:"+canRank);
 
 		if (mMol.getAtomPi(atom) != 0) {
 			if (mMol.isCentralAlleneAtom(atom))
-				return canCalcAlleneParity(atom, calcProParity);
+				return canCalcAlleneParity(atom, mode);
 
 			if (mMol.getAtomicNo(atom) != 15
 			 && mMol.getAtomicNo(atom) != 16)
@@ -1610,15 +1665,23 @@ System.out.println("noOfRanks:"+canRank);
 		if (mMol.getAtomicNo(atom) == 5 && mMol.getAllConnAtoms(atom) != 4)
 			return false;
 
+		if (mMol.isFragment()) {  // don't calculate parities if atom or some neighbours are exclude groups
+			if ((mMol.getAtomQueryFeatures(atom) & Molecule.cAtomQFExcludeGroup) != 0)
+				return false;
+			for (int i=0; i<mMol.getAllConnAtoms(atom); i++)
+				if ((mMol.getAtomQueryFeatures(mMol.getConnAtom(atom, i)) & Molecule.cAtomQFExcludeGroup) != 0)
+					return false;
+			}
+
 		// don't consider tetrahedral nitrogen, unless found to qualify for parity calculation
 		if (mMol.getAtomicNo(atom) == 7
 		 && !mNitrogenQualifiesForParity[atom])
 			return false;
 
 				// create array to remap connAtoms according to canRank order
-		int remappedConn[] = new int[4];
-		int remappedRank[] = new int[4];
-		boolean neighbourUsed[] = new boolean[4];
+		int[] remappedConn = new int[4];
+		int[] remappedRank = new int[4];
+		boolean[] neighbourUsed = new boolean[4];
 		for (int i=0; i<mMol.getAllConnAtoms(atom); i++) {
 			int highestRank = -1;
 			int highestConn = 0;
@@ -1654,37 +1717,34 @@ System.out.println("noOfRanks:"+canRank);
 		boolean proTHAtomsFound = false;
 		for (int i=1; i<mMol.getAllConnAtoms(atom); i++) {
 			if (remappedRank[i-1] == remappedRank[i]) {
-				if (!calcProParity || remappedRank[i] == 0)	// don't calculate pro-parities or hydrogens
+				if (mode == CALC_PARITY_MODE_PARITY || remappedRank[i] == 0)	// don't calculate pro-parities or hydrogens
 					return false;	// two equal ranking atoms -> no stereo center
 
 				proTHAtom1 = mMol.getConnAtom(atom, remappedConn[i-1]);
 				proTHAtom2 = mMol.getConnAtom(atom, remappedConn[i]);
-				if (mMol.isRingBond(mMol.getConnBond(atom,remappedConn[i])))
+				if (mode == CALC_PARITY_MODE_IN_SAME_FRAGMENT
+				 && mMol.isRingBond(mMol.getConnBond(atom,remappedConn[i])))
 					mProTHAtomsInSameFragment[atom] = true;
 				proTHAtomsFound = true;
 				}
 			}
 
-		if (calcProParity && !proTHAtomsFound)
+		if (mode != CALC_PARITY_MODE_PARITY && !proTHAtomsFound)
 			return false;
 
 		byte atomTHParity = (mZCoordinatesAvailable) ?
 							canCalcTHParity3D(atom, remappedConn)
 						  : canCalcTHParity2D(atom, remappedConn);
 
-		if (!calcProParity) {
+		if (mode == CALC_PARITY_MODE_PARITY) {
 			mTHParity[atom] = atomTHParity;
 			}
-		else if ((mStereoCentersFound && (mMode & CONSIDER_DIASTEREOTOPICITY) != 0)
-			  || (!mStereoCentersFound && (mMode & CONSIDER_ENANTIOTOPICITY) != 0)) {
-			// increment mCanBase[] for atoms that are Pro-Parity1
+		else if (mode == CALC_PARITY_MODE_PRO_PARITY) {
 			if (atomTHParity == Molecule.cAtomParity1) {
-				mCanBase[proTHAtom1].add(0x0400);
-				mCanBase[proTHAtom2].add(0x0100);
+				mCanBase[proTHAtom1].add(mCanRank[atom]);
 				}
 			else if (atomTHParity == Molecule.cAtomParity2) {
-				mCanBase[proTHAtom1].add(0x0100);
-				mCanBase[proTHAtom2].add(0x0400);
+				mCanBase[proTHAtom2].add(mCanRank[atom]);
 				}
 			}
 
@@ -1700,7 +1760,7 @@ System.out.println("noOfRanks:"+canRank);
 								  { 2,2,1,1 },	// second dimension: number of
 								  { 1,2,1,2 } };// mMol.getConnAtom that has stereobond
 
-		double angle[] = new double[mMol.getAllConnAtoms(atom)];
+		double[] angle = new double[mMol.getAllConnAtoms(atom)];
 		for (int i=0; i<mMol.getAllConnAtoms(atom); i++)
 			angle[i] = mMol.getBondAngle(mMol.getConnAtom(atom, remappedConn[i]),atom);
 
@@ -1804,7 +1864,7 @@ System.out.println("noOfRanks:"+canRank);
 		}
 
 
-	private boolean canCalcAlleneParity(int atom, boolean calcProParity) {
+	private boolean canCalcAlleneParity(int atom, int mode) {
 		if (mMol.getAtomicNo(atom) != 6
 		 && mMol.getAtomicNo(atom) != 7)
 				   return false;
@@ -1822,65 +1882,43 @@ System.out.println("noOfRanks:"+canRank);
 			return false;
 
 		EZHalfParity halfParity1 = new EZHalfParity(mMol, mCanRank, atom, atom1);
-		if (halfParity1.mRanksEqual && !calcProParity)
+		if (halfParity1.mRanksEqual && mode == CALC_PARITY_MODE_PARITY)
 			return false;
 		EZHalfParity halfParity2 = new EZHalfParity(mMol, mCanRank,atom, atom2);
-		if (halfParity2.mRanksEqual && !calcProParity)
+		if (halfParity2.mRanksEqual && mode == CALC_PARITY_MODE_PARITY)
 			return false;
 
 		if (halfParity1.mRanksEqual && halfParity2.mRanksEqual)
 			return false;	// both ends of DB bear equal substituents
 
-		if (calcProParity) {
+		if (mode == CALC_PARITY_MODE_IN_SAME_FRAGMENT) {
 			if (halfParity1.mRanksEqual && halfParity1.mInSameFragment)
 				mProTHAtomsInSameFragment[atom] = true;
 			if (halfParity2.mRanksEqual && halfParity2.mInSameFragment)
 				mProTHAtomsInSameFragment[atom] = true;
 			}
 
-		int hp1 = halfParity1.getValue();
-		int hp2 = halfParity2.getValue();
-		if (hp1 == -1 || hp2 == -1 || ((hp1 + hp2) & 1) == 0) {
-			if (!calcProParity) {
-				mTHParity[atom] = Molecule.cAtomParityUnknown;
-				}
-			return true;
-			}
+		byte alleneParity = mZCoordinatesAvailable ? canCalcAlleneParity3D(halfParity1, halfParity2)
+												  : canCalcAlleneParity2D(halfParity1, halfParity2);
 
-		byte alleneParity = 0;
-		switch (hp1 + hp2) {
-		case 3:
-		case 7:
-			alleneParity = Molecule.cAtomParity2;
-			break;
-		case 5:
-			alleneParity = Molecule.cAtomParity1;
-			break;
-			}
-
-		if (!calcProParity) {	// increment mProParity[] for atoms that are Pro-Parity1
+		if (mode == CALC_PARITY_MODE_PARITY) {	// increment mProParity[] for atoms that are Pro-Parity1
 			mTHParity[atom] = alleneParity;
 			}
-		else if ((mStereoCentersFound && (mMode & CONSIDER_DIASTEREOTOPICITY) != 0)
-			  || (!mStereoCentersFound && (mMode & CONSIDER_ENANTIOTOPICITY) != 0)) {
+		else if (mode == CALC_PARITY_MODE_PRO_PARITY) {
 			if (halfParity1.mRanksEqual) {
 				if (alleneParity == Molecule.cAtomParity1) {
-					mCanBase[halfParity1.mHighConn].add(0x0040);
-					mCanBase[halfParity1.mLowConn].add(0x0010);
+					mCanBase[halfParity1.mHighConn].add(mCanRank[atom1]);
 					}
 				else {
-					mCanBase[halfParity1.mHighConn].add(0x0010);
-					mCanBase[halfParity1.mLowConn].add(0x0040);
+					mCanBase[halfParity1.mLowConn].add(mCanRank[atom1]);
 					}
 				}
 			if (halfParity2.mRanksEqual) {
 				if (alleneParity == Molecule.cAtomParity2) {
-					mCanBase[halfParity2.mHighConn].add(0x0040);
-					mCanBase[halfParity2.mLowConn].add(0x0010);
+					mCanBase[halfParity2.mHighConn].add(mCanRank[atom2]);
 					}
 				else {
-					mCanBase[halfParity2.mHighConn].add(0x0010);
-					mCanBase[halfParity2.mLowConn].add(0x0040);
+					mCanBase[halfParity2.mLowConn].add(mCanRank[atom2]);
 					}
 				}
 			}
@@ -1889,7 +1927,44 @@ System.out.println("noOfRanks:"+canRank);
 		}
 
 
-	private boolean canCalcBINAPParity(int bond, boolean calcProParity) {
+	private byte canCalcAlleneParity2D(EZHalfParity halfParity1, EZHalfParity halfParity2) {
+		int hp1 = halfParity1.getValue();
+		int hp2 = halfParity2.getValue();
+		if (hp1 == -1 || hp2 == -1 || ((hp1 + hp2) & 1) == 0)
+			return Molecule.cAtomParityUnknown;
+
+		byte alleneParity = 0;
+		switch (hp1 + hp2) {
+			case 3:
+			case 7:
+				alleneParity = Molecule.cAtomParity2;
+				break;
+			case 5:
+				alleneParity = Molecule.cAtomParity1;
+				break;
+			}
+		return alleneParity;
+		}
+
+
+	private byte canCalcAlleneParity3D(EZHalfParity halfParity1, EZHalfParity halfParity2) {
+		int[] atom = new int[4];
+		atom[0] = halfParity1.mHighConn;
+		atom[1] = halfParity1.mCentralAxialAtom;
+		atom[2] = halfParity2.mCentralAxialAtom;
+		atom[3] = halfParity2.mHighConn;
+		double torsion = mMol.calculateTorsion(atom);
+		// if the torsion is not significant (less than ~10 degrees) then return cAtomParityUnknown
+		if (Math.abs(torsion) < 0.3 || Math.abs(torsion) > Math.PI-0.3)
+			return Molecule.cAtomParityUnknown;
+		if (torsion < 0)
+			return Molecule.cAtomParity2;
+		else
+			return Molecule.cAtomParity1;
+		}
+
+
+	private boolean canCalcBINAPParity(int bond, int mode) {
 		if (!mMol.isBINAPChiralityBond(bond))
 			return false;
 
@@ -1897,16 +1972,16 @@ System.out.println("noOfRanks:"+canRank);
 		int atom2 = mMol.getBondAtom(1, bond);
 
 		EZHalfParity halfParity1 = new EZHalfParity(mMol, mCanRank, atom1, atom2);
-		if (halfParity1.mRanksEqual && !calcProParity)
+		if (halfParity1.mRanksEqual && mode == CALC_PARITY_MODE_PARITY)
 			return false;
 		EZHalfParity halfParity2 = new EZHalfParity(mMol, mCanRank, atom2, atom1);
-		if (halfParity2.mRanksEqual && !calcProParity)
+		if (halfParity2.mRanksEqual && mode == CALC_PARITY_MODE_PARITY)
 			return false;
 
 		if (halfParity1.mRanksEqual && halfParity2.mRanksEqual)
 			return false;	// both ends of DB bear equal substituents
 
-		if (calcProParity) {
+		if (mode == CALC_PARITY_MODE_IN_SAME_FRAGMENT) {
 			if (halfParity1.mRanksEqual)	// this is a hack, we should find a better solution considering other proparities as well
 				mProEZAtomsInSameFragment[bond] = hasSecondBINAPBond(atom2);
 			if (halfParity2.mRanksEqual)
@@ -1916,29 +1991,24 @@ System.out.println("noOfRanks:"+canRank);
 		byte axialParity = mZCoordinatesAvailable ? canCalcBINAPParity3D(halfParity1, halfParity2)
 												  : canCalcBINAPParity2D(halfParity1, halfParity2);
 
-		if (!calcProParity) {	// increment mProParity[] for atoms that are Pro-E
+		if (mode == CALC_PARITY_MODE_PARITY) {	// increment mProParity[] for atoms that are Pro-E
 			mEZParity[bond] = axialParity;
 			}
-		else if ((mStereoCentersFound && (mMode & CONSIDER_DIASTEREOTOPICITY) != 0)
-			  || (!mStereoCentersFound && (mMode & CONSIDER_ENANTIOTOPICITY) != 0)) {
+		else if (mode == CALC_PARITY_MODE_PRO_PARITY) {
 			if (halfParity1.mRanksEqual) {
 				if (axialParity == Molecule.cBondParityZor2) {
-					mCanBase[halfParity1.mHighConn].add(0x0004);
-					mCanBase[halfParity1.mLowConn].add(0x0001);
+					mCanBase[halfParity1.mHighConn].add(mCanRank[atom2]);
 					}
 				else {
-					mCanBase[halfParity1.mHighConn].add(0x0001);
-					mCanBase[halfParity1.mLowConn].add(0x0004);
+					mCanBase[halfParity1.mLowConn].add(mCanRank[atom2]);
 					}
 				}
 			if (halfParity2.mRanksEqual) {
 				if (axialParity == Molecule.cBondParityZor2) {
-					mCanBase[halfParity2.mHighConn].add(0x0004);
-					mCanBase[halfParity2.mLowConn].add(0x0001);
+					mCanBase[halfParity2.mHighConn].add(mCanRank[atom1]);
 					}
 				else {
-					mCanBase[halfParity2.mHighConn].add(0x0001);
-					mCanBase[halfParity2.mLowConn].add(0x0004);
+					mCanBase[halfParity2.mLowConn].add(mCanRank[atom1]);
 					}
 				}
 			}
@@ -2005,19 +2075,27 @@ System.out.println("noOfRanks:"+canRank);
 	 * If calcProParity is true then the pro-parities of the allylic atoms are calculated
 	 * rather than EZ-parities of double bonds.
 	 * @param bond
-	 * @param calcProParity if true then calculate pro-parities
+	 * @param mode whether to calculate parities, pro-parities, or determine whether heterotopic atoms are in same fragment
 	 * @return false if bond's mEZParity != 0; otherwise true if it finds and sets a parity other than 0
 	 */
-	private boolean canCalcEZParity(int bond, boolean calcProParity) {
+	private boolean canCalcEZParity(int bond, int mode) {
 			// depending on the flag calcProParity this routine either
 			//	- updates EZ-parities of double bonds
 			// or - calculates EZ-pro-parities of allylic atoms
-//#		if (!calcProParity && mEZParity[bond] != 0)
 		if (mEZParity[bond] != 0)
 			return false;
 
+		if (mMol.isFragment()) {  // don't calculate parities if some bond atoms or their neighbours are exclude groups
+			for (int i=0; i<2; i++) {
+				int atom = mMol.getBondAtom(i, bond);
+				for (int j=0; j<mMol.getAllConnAtoms(atom); j++)
+					if ((mMol.getAtomQueryFeatures(mMol.getConnAtom(atom, j)) & Molecule.cAtomQFExcludeGroup) != 0)
+						return false;
+				}
+			}
+
 		if (mMol.getBondOrder(bond) == 1)
-			return canCalcBINAPParity(bond, calcProParity);
+			return canCalcBINAPParity(bond, mode);
 
 		if (mMol.getBondOrder(bond) != 2)
 			return false;
@@ -2041,16 +2119,16 @@ System.out.println("noOfRanks:"+canRank);
 			return false;
 
 		EZHalfParity halfParity1 = new EZHalfParity(mMol, mCanRank, dbAtom2, dbAtom1);
-		if (halfParity1.mRanksEqual && !calcProParity)
+		if (halfParity1.mRanksEqual && mode == CALC_PARITY_MODE_PARITY)
 			return false;
 		EZHalfParity halfParity2 = new EZHalfParity(mMol, mCanRank, dbAtom1, dbAtom2);
-		if (halfParity2.mRanksEqual && !calcProParity)
+		if (halfParity2.mRanksEqual && mode == CALC_PARITY_MODE_PARITY)
 			return false;
 
 		if (halfParity1.mRanksEqual && halfParity2.mRanksEqual)
 			return false;	// both ends of DB bear equal substituents
 
-		if (calcProParity) {
+		if (mode == CALC_PARITY_MODE_IN_SAME_FRAGMENT) {
 			if (halfParity1.mRanksEqual && halfParity1.mInSameFragment)
 				mProEZAtomsInSameFragment[bond] = true;
 			if (halfParity2.mRanksEqual && halfParity2.mInSameFragment)
@@ -2061,29 +2139,24 @@ System.out.println("noOfRanks:"+canRank);
 							  		  : (mZCoordinatesAvailable) ? canCalcEZParity3D(halfParity1, halfParity2)
 							  				  					 : canCalcEZParity2D(halfParity1, halfParity2);
 
-		if (!calcProParity) {
+		if (mode == CALC_PARITY_MODE_PARITY) {
 			mEZParity[bond] = bondDBParity;
 			}
-		else if ((mMode & CONSIDER_DIASTEREOTOPICITY) != 0) {
-			// increment mProParity[] for atoms that are Pro-E
+		else if (mode == CALC_PARITY_MODE_PRO_PARITY) {
 			if (halfParity1.mRanksEqual) {
 				if (bondDBParity == Molecule.cBondParityEor1) {
-					mCanBase[halfParity1.mHighConn].add(0x0004);
-					mCanBase[halfParity1.mLowConn].add(0x0001);
+					mCanBase[halfParity1.mHighConn].add(mCanRank[dbAtom1]);
 					}
 				else if (bondDBParity == Molecule.cBondParityZor2) {
-					mCanBase[halfParity1.mHighConn].add(0x0001);
-					mCanBase[halfParity1.mLowConn].add(0x0004);
+					mCanBase[halfParity1.mLowConn].add(mCanRank[dbAtom1]);
 					}
 				}
 			if (halfParity2.mRanksEqual) {
 				if (bondDBParity == Molecule.cBondParityEor1) {
-					mCanBase[halfParity2.mHighConn].add(0x0004);
-					mCanBase[halfParity2.mLowConn].add(0x0001);
+					mCanBase[halfParity2.mHighConn].add(mCanRank[dbAtom2]);
 					}
 				else if (bondDBParity == Molecule.cBondParityZor2) {
-					mCanBase[halfParity2.mHighConn].add(0x0001);
-					mCanBase[halfParity2.mLowConn].add(0x0004);
+					mCanBase[halfParity2.mLowConn].add(mCanRank[dbAtom2]);
 					}
 				}
 			}
@@ -2156,8 +2229,7 @@ System.out.println("noOfRanks:"+canRank);
 			// if no parity found, but atom was assigned to AND or OR group
 			if ((mMol.getAtomESRType(atom) == Molecule.cESRTypeAnd
 			  || mMol.getAtomESRType(atom) == Molecule.cESRTypeOr)
-			 && (!mIsStereoCenter[atom]
-			  || mTHParity[atom] == Molecule.cAtomParityUnknown))
+			 && (mTHParity[atom] == Molecule.cAtomParityUnknown))
 				mMol.setStereoProblem(atom);
 
 			if (mMol.isAtomConfigurationUnknown(atom)
@@ -2262,8 +2334,8 @@ System.out.println("noOfRanks:"+canRank);
 			if (mCanRank[atom] > mCanRank[startAtom])
 				startAtom = atom;
 
-		boolean atomHandled[] = new boolean[mMol.getAtoms()];
-		boolean bondHandled[] = new boolean[mMol.getBonds()];
+		boolean[] atomHandled = new boolean[mMol.getAtoms()];
+		boolean[] bondHandled = new boolean[mMol.getBonds()];
 		mGraphIndex = new int[mMol.getAtoms()];
 		mGraphAtom = new int[mMol.getAtoms()];
 		mGraphFrom = new int[mMol.getAtoms()];
@@ -2369,10 +2441,16 @@ System.out.println("noOfRanks:"+canRank);
 		}
 
 
+	/**
+	 * @param includeExplicitHydrogen
+	 * @return canonical copy of this molecule
+	 */
 	public StereoMolecule getCanMolecule(boolean includeExplicitHydrogen) {
 		generateGraph();
 
 		StereoMolecule mol = new StereoMolecule(mMol.getAtoms(), mMol.getBonds());
+
+		mol.setFragment(mMol.isFragment());	// to allow copying of atom/bond query features
 
 		for(int i=0; i<mMol.getAtoms(); i++) {
 			mMol.copyAtom(mol, mGraphAtom[i], 0, 0);
@@ -2381,6 +2459,11 @@ System.out.println("noOfRanks:"+canRank);
 
 		for(int i=0; i<mMol.getBonds(); i++) {
 			mMol.copyBond(mol, mGraphBond[i], 0, 0, mGraphIndex, false);
+			if (!mol.isStereoBond(i) && mol.getBondAtom(0, i) > mol.getBondAtom(1, i)) {
+				int temp = mol.getBondAtom(0, i);
+				mol.setBondAtom(0, i, mol.getBondAtom(1, i));
+				mol.setBondAtom(1, i, temp);
+				}
 			mol.setBondESR(i, mEZESRType[mGraphBond[i]], mEZESRGroup[mGraphBond[i]]);
 			}
 
@@ -2394,8 +2477,18 @@ System.out.println("noOfRanks:"+canRank);
 				}
 			}
 
+		for (int bond=0; bond<mol.getAllBonds(); bond++) {
+			int atom = mol.getBondAtom(0, bond);
+			if (mTHParityIsMesoInverted[mGraphAtom[atom]]) {
+				if (mol.getBondType(bond) == Molecule.cBondTypeUp)
+					mol.setBondType(bond, Molecule.cBondTypeDown);
+				else if (mol.getBondType(bond) == Molecule.cBondTypeDown)
+					mol.setBondType(bond, Molecule.cBondTypeUp);
+				}
+			}
+
 		mMol.copyMoleculeProperties(mol);
-		mMol.invalidateHelperArrays(Molecule.cHelperBitParities);
+		mol.invalidateHelperArrays(Molecule.cHelperBitParities);
 
 		return mol;
 		}
@@ -2427,8 +2520,8 @@ System.out.println("noOfRanks:"+canRank);
 
 	/**
 	 * If the molecule contains exactly one stereo center and if that has unknown configuration,
-	 * than assume that the configuration is meant to be racemic and update molecule accordingly.
-	 * If stereo configuration is ill defined with a stereo bond whose pointed tip is not at the
+	 * then assume that the configuration is meant to be racemic and update molecule accordingly.
+	 * If stereo configuration is ill-defined with a stereo bond whose pointed tip is not at the
 	 * stereo center, then the molecule is not touched and the stereo center kept as undefined.
 	 * @return whether a stereo center was converted to be racemic
 	 */
@@ -2547,9 +2640,10 @@ System.out.println("noOfRanks:"+canRank);
 	public String getIDCode() {
 		if (mIDCode == null) {
 			generateGraph();
-			idGenerateConfigurations();
-//			idNormalizeConfigurations();
-			idNormalizeESRGroupNumbers();
+			if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+				idGenerateConfigurations();
+				idNormalizeESRGroupNumbers();
+				}
 			idCodeCreate();
 			}
 
@@ -2564,7 +2658,7 @@ System.out.println("noOfRanks:"+canRank);
 
 
 	/**
-	 * Returned symmetry rank before tie breaking. For this the Canonizer
+	 * Returns the symmetry rank before tie breaking. For this the Canonizer
 	 * mode must contain the CREATE_SYMMETRY_RANK option. If ranking
 	 * shall reflect atom diastereotopicity or even enantiotopicity, use
 	 * mode CONSIDER_DIASTEREOTOPICITY or CONSIDER_STEREOHETEROTOPICITY,
@@ -2573,16 +2667,28 @@ System.out.println("noOfRanks:"+canRank);
 	 * @return rank
 	 */
 	public int getSymmetryRank(int atom) {
-		// requires to use the 'createSymmetryRank' option
 		return (mCanRankBeforeTieBreaking == null) ? -1 : mCanRankBeforeTieBreaking[atom];
+		}
+
+
+	/**
+	 * Returns the symmetry ranks before tie breaking. For this the Canonizer
+	 * mode must contain the CREATE_SYMMETRY_RANK option. If ranking
+	 * shall reflect atom diastereotopicity or even enantiotopicity, use
+	 * mode CONSIDER_DIASTEREOTOPICITY or CONSIDER_STEREOHETEROTOPICITY,
+	 * respectively.
+	 * @return ranks
+	 */
+	public int[] getSymmetryRanks() {
+		return mCanRankBeforeTieBreaking;
 		}
 
 
 	private void idCodeCreate() {
 		encodeBitsStart(false);
 		encodeBits(cIDCodeVersion3, 4);
-		int nbits = Math.max(idGetNeededBits(mMol.getAtoms()),
-							 idGetNeededBits(mMol.getBonds()));
+		int nbits = Math.max(getNeededBits(mMol.getAtoms()),
+							 getNeededBits(mMol.getBonds()));
 		encodeBits(nbits, 4);
 
 		if (nbits == 0) {
@@ -2689,7 +2795,7 @@ System.out.println();
 System.out.println("D-Bits:" + idGetNeededBits(maxdif));
 System.out.print("GraphAtomDifs:");
 */
-		int dbits = idGetNeededBits(maxdif);
+		int dbits = getNeededBits(maxdif);
 		encodeBits(dbits, 4);
 		base = 0;
 		for (int atom=1; atom<mMol.getAtoms(); atom++) {
@@ -2720,68 +2826,78 @@ System.out.print("BondOrders:");
 			int bondOrder = ((mMol.getBondQueryFeatures(mGraphBond[bond]) & Molecule.cBondQFBridge) != 0
 						  || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeMetalLigand) ?
 							1 : (mMol.isDelocalizedBond(mGraphBond[bond])) ?
-							0 : mMol.getBondOrder(mGraphBond[bond]);
+							0 : Math.min(3, mMol.getBondOrder(mGraphBond[bond]));
 			encodeBits(bondOrder, 2);
 //System.out.print(bondOrder + ";");
 			}
 //System.out.println();
 
 		int THCount = 0;
-		for (int atom=0; atom<mMol.getAtoms(); atom++)
-			if (mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityNone
-			 && mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityUnknown)
-				THCount++;
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+			for (int atom=0; atom<mMol.getAtoms(); atom++)
+				if (mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityNone
+				 && mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityUnknown)
+					THCount++;
+			}
 		encodeBits(THCount, nbits);
-		for (int atom=0; atom<mMol.getAtoms(); atom++)
-			if (mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityNone
-			 && mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityUnknown) {
-				encodeBits(atom, nbits);
-				if (mTHESRType[mGraphAtom[atom]] == Molecule.cESRTypeAbs) {
-					encodeBits(mTHConfiguration[mGraphAtom[atom]], 3);
-					}
-				else {
-					int parity = (mTHConfiguration[mGraphAtom[atom]] == Molecule.cAtomParity1) ?
-							((mTHESRType[mGraphAtom[atom]] == Molecule.cESRTypeAnd) ?
-									cParity1And : cParity1Or)
-						  : ((mTHESRType[mGraphAtom[atom]] == Molecule.cESRTypeAnd) ?
-									cParity2And : cParity2Or);
-
-					encodeBits(parity, 3);
-					encodeBits(mTHESRGroup[mGraphAtom[atom]], 3);
-					}
-				}
-
-		int EZCount = 0;
-		for (int bond=0; bond<mMol.getBonds(); bond++)	// parity of all double bonds
-			if (mEZConfiguration[mGraphBond[bond]] != 0
-			 && mEZConfiguration[mGraphBond[bond]] != Molecule.cBondParityUnknown
-			 && (!mMol.isSmallRingBond(mGraphBond[bond]) || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeSingle))
-				EZCount++;
-		encodeBits(EZCount, nbits);
-		for (int bond=0; bond<mMol.getBonds(); bond++)
-			if (mEZConfiguration[mGraphBond[bond]] != 0
-			 && mEZConfiguration[mGraphBond[bond]] != Molecule.cBondParityUnknown
-			 && (!mMol.isSmallRingBond(mGraphBond[bond]) || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeSingle)) {
-				encodeBits(bond, nbits);
-				if (mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeSingle) {	// BINAP type of axial chirality
-					if (mEZESRType[mGraphBond[bond]] == Molecule.cESRTypeAbs) {
-						encodeBits(mEZConfiguration[mGraphBond[bond]], 3);
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+			for (int atom=0; atom<mMol.getAtoms(); atom++) {
+				if (mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityNone
+				 && mTHConfiguration[mGraphAtom[atom]] != Molecule.cAtomParityUnknown) {
+					encodeBits(atom, nbits);
+					if (mTHESRType[mGraphAtom[atom]] == Molecule.cESRTypeAbs) {
+						encodeBits(mTHConfiguration[mGraphAtom[atom]], 3);
 						}
 					else {
-						int parity = (mEZConfiguration[mGraphBond[bond]] == Molecule.cBondParityEor1) ?
-								((mEZESRType[mGraphBond[bond]] == Molecule.cESRTypeAnd) ?
+						int parity = (mTHConfiguration[mGraphAtom[atom]] == Molecule.cAtomParity1) ?
+								((mTHESRType[mGraphAtom[atom]] == Molecule.cESRTypeAnd) ?
 										cParity1And : cParity1Or)
-							  : ((mEZESRType[mGraphBond[bond]] == Molecule.cESRTypeAnd) ?
+							  : ((mTHESRType[mGraphAtom[atom]] == Molecule.cESRTypeAnd) ?
 										cParity2And : cParity2Or);
 
 						encodeBits(parity, 3);
-						encodeBits(mEZESRGroup[mGraphBond[bond]], 3);
+						encodeBits(mTHESRGroup[mGraphAtom[atom]], 3);
 						}
 					}
-				else {
-					encodeBits(mEZConfiguration[mGraphBond[bond]], 2);	// for compatibility reasons we use only two bits for double bonds
+				}
+			}
+
+		int EZCount = 0;
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+			for (int bond=0; bond<mMol.getBonds(); bond++)	// parity of all double bonds
+				if (mEZConfiguration[mGraphBond[bond]] != 0
+				 && mEZConfiguration[mGraphBond[bond]] != Molecule.cBondParityUnknown
+				 && (!mMol.isSmallRingBond(mGraphBond[bond]) || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeSingle))
+					EZCount++;
+			}
+		encodeBits(EZCount, nbits);
+		if ((mMode & NEGLECT_ANY_STEREO_INFORMATION) == 0) {
+			for (int bond=0; bond<mMol.getBonds(); bond++) {
+				if (mEZConfiguration[mGraphBond[bond]] != 0
+				 && mEZConfiguration[mGraphBond[bond]] != Molecule.cBondParityUnknown
+				 && (!mMol.isSmallRingBond(mGraphBond[bond]) || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeSingle)) {
+					encodeBits(bond, nbits);
+					if (mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeSingle) {	// BINAP type of axial chirality
+						if (mEZESRType[mGraphBond[bond]] == Molecule.cESRTypeAbs) {
+							encodeBits(mEZConfiguration[mGraphBond[bond]], 3);
+							}
+						else {
+							int parity = (mEZConfiguration[mGraphBond[bond]] == Molecule.cBondParityEor1) ?
+									((mEZESRType[mGraphBond[bond]] == Molecule.cESRTypeAnd) ?
+											cParity1And : cParity1Or)
+								  : ((mEZESRType[mGraphBond[bond]] == Molecule.cESRTypeAnd) ?
+											cParity2And : cParity2Or);
+
+							encodeBits(parity, 3);
+							encodeBits(mEZESRGroup[mGraphBond[bond]], 3);
+							}
+						}
+					else {
+						encodeBits(mEZConfiguration[mGraphBond[bond]], 2);	// for compatibility reasons we use only two bits for double bonds
+						}
 					}
 				}
+			}
 /*
 THCount = 0;
 for (int atom=0; atom<mMol.getAtoms(); atom++)
@@ -2828,8 +2944,7 @@ System.out.println();
 			if (mMol.getAtomMass(mGraphAtom[atom]) != 0)
 				count++;
 		if (count != 0) {
-			encodeBits(1, 1);	//	more data to come
-			encodeBits(1, 4);	//	1 = datatype 'isotope'
+			encodeFeatureNo(1);	//	1 = datatype 'isotope'
 			encodeBits(count, nbits);
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				if (mMol.getAtomMass(mGraphAtom[atom]) != 0) {
@@ -2839,26 +2954,26 @@ System.out.println();
 				}
 			}
 
-		boolean isSecondFeatureBlock = false;
+		mFeatureBlock = 0;
 
 		if (mMol.isFragment()) {	// QueryFeatures and fragment specific properties
-			addAtomQueryFeatures(0, false, nbits, Molecule.cAtomQFNoMoreNeighbours, 1, -1);
+			addAtomQueryFeatures(0, nbits, Molecule.cAtomQFNoMoreNeighbours, 1, -1);
 
-			addAtomQueryFeatures(3, false, nbits, Molecule.cAtomQFMoreNeighbours, 1, -1);
+			addAtomQueryFeatures(3, nbits, Molecule.cAtomQFMoreNeighbours, 1, -1);
 
-			addAtomQueryFeatures(4, false, nbits,
+			addAtomQueryFeatures(4, nbits,
 								 Molecule.cAtomQFRingState,
 								 Molecule.cAtomQFRingStateBits,
 								 Molecule.cAtomQFRingStateShift);
 
-			addAtomQueryFeatures(5, false, nbits,
+			addAtomQueryFeatures(5, nbits,
 								 Molecule.cAtomQFAromState,
 								 Molecule.cAtomQFAromStateBits,
 								 Molecule.cAtomQFAromStateShift);
 
-			addAtomQueryFeatures(6, false, nbits, Molecule.cAtomQFAny, 1, -1);
+			addAtomQueryFeatures(6, nbits, Molecule.cAtomQFAny, 1, -1);
 
-			addAtomQueryFeatures(7, false, nbits,
+			addAtomQueryFeatures(7, nbits,
 								 Molecule.cAtomQFHydrogen,
 								 Molecule.cAtomQFHydrogenBits,
 								 Molecule.cAtomQFHydrogenShift);
@@ -2868,51 +2983,50 @@ System.out.println();
 				if (mMol.getAtomList(mGraphAtom[atom]) != null)
 					count++;
 			if (count > 0) {
-				encodeBits(1, 1);	//	more data to come
-				encodeBits(8, 4);	//	8 = datatype 'AtomList'
+				encodeFeatureNo(8);	//	8 = datatype 'AtomList'
 				encodeBits(count, nbits);
 				for (int atom=0; atom<mMol.getAtoms(); atom++) {
 					int[] atomList = mMol.getAtomList(mGraphAtom[atom]);
 					if (atomList != null) {
 						encodeBits(atom, nbits);
 						encodeBits(atomList.length, 4);
-						for (int i=0; i<atomList.length; i++)
-							encodeBits(atomList[i], 8);
+						for (int a:atomList)
+							encodeBits(a, 8);
 						}
 					}
 				}
 
-			addBondQueryFeatures(9, false, nbits,
+			addBondQueryFeatures(9, nbits,
 								 Molecule.cBondQFRingState,
 								 Molecule.cBondQFRingStateBits,
 								 Molecule.cBondQFRingStateShift);
 
-			addBondQueryFeatures(10, false, nbits,
+			addBondQueryFeatures(10, nbits,
 								 Molecule.cBondQFBondTypes,
 								 Molecule.cBondQFBondTypesBits,
 								 Molecule.cBondQFBondTypesShift);
 
-			addAtomQueryFeatures(11, false, nbits, Molecule.cAtomQFMatchStereo, 1, -1);
+			addAtomQueryFeatures(11, nbits, Molecule.cAtomQFMatchStereo, 1, -1);
 
-			addBondQueryFeatures(12, false, nbits,
+			addBondQueryFeatures(12, nbits,
 								 Molecule.cBondQFBridge,
 								 Molecule.cBondQFBridgeBits,
 								 Molecule.cBondQFBridgeShift);
 
-			addAtomQueryFeatures(13, false, nbits,
+			addAtomQueryFeatures(13, nbits,
 								 Molecule.cAtomQFPiElectrons,
 								 Molecule.cAtomQFPiElectronBits,
 								 Molecule.cAtomQFPiElectronShift);
 
-			addAtomQueryFeatures(14, false, nbits,
+			addAtomQueryFeatures(14, nbits,
 								 Molecule.cAtomQFNeighbours,
 								 Molecule.cAtomQFNeighbourBits,
 								 Molecule.cAtomQFNeighbourShift);
 
-			isSecondFeatureBlock |= addAtomQueryFeatures(16, isSecondFeatureBlock, nbits,
-														 Molecule.cAtomQFRingSize,
-														 Molecule.cAtomQFRingSizeBits,
-														 Molecule.cAtomQFRingSizeShift);
+			addAtomQueryFeatures(16, nbits,
+								 Molecule.cAtomQFSmallRingSize,
+								 Molecule.cAtomQFSmallRingSizeBits,
+								 Molecule.cAtomQFSmallRingSizeShift);
 			}
 
 		count = 0;
@@ -2920,9 +3034,7 @@ System.out.println();
 			if (mAbnormalValence != null && mAbnormalValence[mGraphAtom[atom]] != -1)
 				count++;
 		if (count != 0) {
-			isSecondFeatureBlock = ensureSecondFeatureBlock(isSecondFeatureBlock);
-			encodeBits(1, 1);   //  more data to come
-			encodeBits(1, 4);   //  (17-offset) 17 = datatype 'AtomAbnormalValence'
+			encodeFeatureNo(17);   //  17 = datatype 'AtomAbnormalValence'
 			encodeBits(count, nbits);
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				if (mAbnormalValence != null && mAbnormalValence[mGraphAtom[atom]] != -1) {
@@ -2932,7 +3044,8 @@ System.out.println();
 				}
 			}
 
-		if ((mMode & ENCODE_ATOM_CUSTOM_LABELS) != 0) {
+		if ((mMode & ENCODE_ATOM_CUSTOM_LABELS) != 0
+		 ||	(mMode & ENCODE_ATOM_CUSTOM_LABELS_WITHOUT_RANKING) != 0) {
 			count = 0;
 			int maxLength = 0;
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
@@ -2943,10 +3056,8 @@ System.out.println();
 					}
 				}
 			if (count != 0) {
-				isSecondFeatureBlock = ensureSecondFeatureBlock(isSecondFeatureBlock);
-				int lbits = idGetNeededBits(maxLength);
-				encodeBits(1, 1);   //  more data to come
-				encodeBits(2, 4);   //  (18-offset) 18 = datatype 'AtomCustomLabel'
+				int lbits = getNeededBits(maxLength);
+				encodeFeatureNo(18);   //  18 = datatype 'AtomCustomLabel'
 				encodeBits(count, nbits);
 				encodeBits(lbits, 4);
 				for (int atom=0; atom<mMol.getAtoms(); atom++) {
@@ -2962,15 +3073,15 @@ System.out.println();
 			}
 
 		if (mMol.isFragment()) {	// more QueryFeatures and fragment specific properties
-			isSecondFeatureBlock |= addAtomQueryFeatures(19, isSecondFeatureBlock, nbits,
-					 									 Molecule.cAtomQFCharge,
-					 									 Molecule.cAtomQFChargeBits,
-					 									 Molecule.cAtomQFChargeShift);
+			addAtomQueryFeatures(19, nbits,
+					 			 Molecule.cAtomQFCharge,
+					 			 Molecule.cAtomQFChargeBits,
+					 			 Molecule.cAtomQFChargeShift);
 
-			isSecondFeatureBlock |= addBondQueryFeatures(20, isSecondFeatureBlock, nbits,
-														 Molecule.cBondQFRingSize,
-														 Molecule.cBondQFRingSizeBits,
-														 Molecule.cBondQFRingSizeShift);
+			addBondQueryFeatures(20, nbits,
+								 Molecule.cBondQFRingSize,
+								 Molecule.cBondQFRingSizeBits,
+								 Molecule.cBondQFRingSizeShift);
 			}
 
 		count = 0;
@@ -2978,9 +3089,7 @@ System.out.println();
 			if (mMol.getAtomRadical(mGraphAtom[atom]) != 0)
 				count++;
 		if (count != 0) {
-			isSecondFeatureBlock = ensureSecondFeatureBlock(isSecondFeatureBlock);
-			encodeBits(1, 1);   //  more data to come
-			encodeBits(5, 4);   //  (21-offset) 21 = datatype 'AtomRadicalState'
+			encodeFeatureNo(21);   //  21 = datatype 'AtomRadicalState'
 			encodeBits(count, nbits);
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				if (mMol.getAtomRadical(mGraphAtom[atom]) != 0) {
@@ -2991,20 +3100,18 @@ System.out.println();
 			}
 
 		if (mMol.isFragment()) {	// more QueryFeatures and fragment specific properties
-			isSecondFeatureBlock |= addAtomQueryFeatures(22, isSecondFeatureBlock, nbits, Molecule.cAtomQFFlatNitrogen, 1, -1);
-			isSecondFeatureBlock |= addBondQueryFeatures(23, isSecondFeatureBlock, nbits, Molecule.cBondQFMatchStereo, 1, -1);
-			isSecondFeatureBlock |= addBondQueryFeatures(24, isSecondFeatureBlock, nbits,
-					 									 Molecule.cBondQFAromState,
-					 									 Molecule.cBondQFAromStateBits,
-					 									 Molecule.cBondQFAromStateShift);
+			addAtomQueryFeatures(22, nbits, Molecule.cAtomQFFlatNitrogen, 1, -1);
+			addBondQueryFeatures(23, nbits, Molecule.cBondQFMatchStereo, 1, -1);
+			addBondQueryFeatures(24, nbits,
+					 							Molecule.cBondQFAromState,
+					 							Molecule.cBondQFAromStateBits,
+					 							Molecule.cBondQFAromStateShift);
 			}
 
 		if ((mMode & ENCODE_ATOM_SELECTION) != 0) {
 			for (int atom=0; atom<mMol.getAtoms(); atom++) {
 				if (mMol.isSelectedAtom(mGraphAtom[atom])) {
-					isSecondFeatureBlock = ensureSecondFeatureBlock(isSecondFeatureBlock);
-					encodeBits(1, 1);   //  more data to come
-					encodeBits(9, 4);   //  (25-offset) 25 = datatype 'AtomSelection'
+					encodeFeatureNo(25);   //  25 = datatype 'AtomSelection'
 					for (int a=0; a<mMol.getAtoms(); a++)
 						encodeBits(mMol.isSelectedAtom(mGraphAtom[a]) ? 1:0, 1);
 					break;
@@ -3019,9 +3126,7 @@ System.out.println();
 				if (isAromaticSPBond[mGraphBond[bond]])
 					count++;
 
-			isSecondFeatureBlock = ensureSecondFeatureBlock(isSecondFeatureBlock);
-			encodeBits(1, 1);   //  more data to come
-			encodeBits(10, 4);   //  (26-offset) 26 = datatype 'delocalized high order bond'
+			encodeFeatureNo(26);   //  26 = datatype 'delocalized high order bond'
 			encodeBits(count, nbits);
 			for (int bond=0; bond<mMol.getBonds(); bond++)
 				if (isAromaticSPBond[mGraphBond[bond]])
@@ -3029,20 +3134,45 @@ System.out.println();
 			}
 
 		if (mMol.isFragment())	// 27 = datatype 'part of an exclude-group'
-			isSecondFeatureBlock |= addAtomQueryFeatures(27, isSecondFeatureBlock, nbits, Molecule.cAtomQFExcludeGroup, 1, -1);
+			addAtomQueryFeatures(27, nbits, Molecule.cAtomQFExcludeGroup, 1, -1);
 
 		count = 0;
 		for (int bond=0; bond<mMol.getBonds(); bond++)
 			if (mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeMetalLigand)
 				count++;
 		if (count != 0) {
-			isSecondFeatureBlock = ensureSecondFeatureBlock(isSecondFeatureBlock);
-			encodeBits(1, 1);   //  more data to come
-			encodeBits(12, 4);   //  (28-offset) 28 = datatype 'coordinate bond'
+			encodeFeatureNo(28);    // 28 = datatype 'dative (0-order) bond'
 			encodeBits(count, nbits);
 			for (int bond=0; bond<mMol.getBonds(); bond++)
 				if (mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeMetalLigand)
 					encodeBits(bond, nbits);
+			}
+
+		if (mMol.isFragment()) {    // 29 = datatype 'reaction parity hint'
+			addAtomQueryFeatures(29, nbits, Molecule.cAtomQFRxnParityHint, Molecule.cAtomQFRxnParityBits, Molecule.cAtomQFRxnParityShift);
+			addAtomQueryFeatures(30, nbits, Molecule.cAtomQFNewRingSize, Molecule.cAtomQFNewRingSizeBits, Molecule.cAtomQFNewRingSizeShift);
+			addAtomQueryFeatures(32, nbits, Molecule.cAtomQFStereoState, Molecule.cAtomQFStereoStateBits, Molecule.cAtomQFStereoStateShift);
+			addAtomQueryFeatures(33, nbits, Molecule.cAtomQFENeighbours, Molecule.cAtomQFENeighbourBits, Molecule.cAtomQFENeighbourShift);
+			addAtomQueryFeatures(34, nbits, Molecule.cAtomQFHeteroAromatic, 1, -1);
+			addBondQueryFeatures(35, nbits, Molecule.cBondQFMatchFormalOrder, 1, -1);
+			addBondQueryFeatures(36, nbits, Molecule.cBondQFRareBondTypes, Molecule.cBondQFRareBondTypesBits, Molecule.cBondQFRareBondTypesShift);
+			}
+
+		count = 0;
+		for (int bond=0; bond<mMol.getBonds(); bond++)
+			if (mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeQuadruple
+			 || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeQuintuple)
+				count++;
+		if (count != 0) {
+			encodeFeatureNo(37);    // 37 = datatype 'rare order bond'
+			encodeBits(count, nbits);
+			for (int bond=0; bond<mMol.getBonds(); bond++) {
+				if (mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeQuadruple
+				 || mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeQuintuple) {
+					encodeBits(bond, nbits);
+					encodeBits(mMol.getBondType(mGraphBond[bond]) == Molecule.cBondTypeQuadruple ? 0 : 1, 1);
+					}
+				}
 			}
 
 		encodeBits(0, 1);
@@ -3050,62 +3180,38 @@ System.out.println();
 		}
 
 
-	private boolean ensureSecondFeatureBlock(boolean isSecondFeatureBlock) {
-		if (!isSecondFeatureBlock) {
-			encodeBits(1, 1);   //  more data to come
-			encodeBits(15, 4);   //  15 = datatype 'start second query feature set'
-			}
-		return true;
-		}
-
-
-	private boolean addAtomQueryFeatures(int codeNo, boolean isSecondFeatureBlock, int nbits,
-										 int qfMask, int qfBits, int qfShift) {
+	private void addAtomQueryFeatures(int codeNo, int nbits, long qfMask, int qfBits, int qfShift) {
 		int count = 0;
 		for (int atom=0; atom<mMol.getAtoms(); atom++)
 			if ((mMol.getAtomQueryFeatures(mGraphAtom[atom]) & qfMask) != 0)
 				count++;
 
 		if (count == 0)
-			return false;
+			return;
 
-		if (codeNo > 15) {
-			ensureSecondFeatureBlock(isSecondFeatureBlock);
-			codeNo -= 16;
-			}
-
-		encodeBits(1, 1);		   //  more data to come
-		encodeBits(codeNo, 4);	  //  datatype
+		encodeFeatureNo(codeNo);
 		encodeBits(count, nbits);
 		for (int atom=0; atom<mMol.getAtoms(); atom++) {
-			int feature = mMol.getAtomQueryFeatures(mGraphAtom[atom]) & qfMask;
+			long feature = mMol.getAtomQueryFeatures(mGraphAtom[atom]) & qfMask;
 			if (feature != 0) {
 				encodeBits(atom, nbits);
 				if (qfBits != 1)
 					encodeBits(feature >> qfShift, qfBits);
 				}
 			}
-
-		return true;
 		}
 
 
-	private boolean addBondQueryFeatures(int codeNo, boolean isSecondFeatureBlock, int nbits, int qfMask, int qfBits, int qfShift) {
+	private void addBondQueryFeatures(int codeNo, int nbits, int qfMask, int qfBits, int qfShift) {
 		int count = 0;
 		for (int bond=0; bond<mMol.getBonds(); bond++)
 			if ((mMol.getBondQueryFeatures(mGraphBond[bond]) & qfMask) != 0)
 				count++;
 
 		if (count == 0)
-			return false;
+			return;
 
-		if (codeNo > 15) {
-			ensureSecondFeatureBlock(isSecondFeatureBlock);
-			codeNo -= 16;
-			}
-
-		encodeBits(1, 1);		   //  more data to come
-		encodeBits(codeNo, 4);	  //  datatype
+		encodeFeatureNo(codeNo);
 		encodeBits(count, nbits);
 		for (int bond=0; bond<mMol.getBonds(); bond++) {
 			int feature = mMol.getBondQueryFeatures(mGraphBond[bond]) & qfMask;
@@ -3115,8 +3221,6 @@ System.out.println();
 					encodeBits(feature >> qfShift, qfBits);
 				}
 			}
-
-		return true;
 		}
 
 
@@ -3192,7 +3296,7 @@ System.out.println();
 		}
 
 	public void invalidateCoordinates() {
-		mCoordinates = null;
+		mEncodedCoords = null;
 		}
 
 	/**
@@ -3227,113 +3331,41 @@ System.out.println();
 	 * @return
 	 */
 	public String getEncodedCoordinates(boolean keepPositionAndScale) {
-		if (mCoordinates == null) {
+		if (mEncodedCoords == null) {
 			generateGraph();
-			encodeCoordinates(keepPositionAndScale);
+			encodeCoordinates(keepPositionAndScale, mMol.getAtomCoordinates());
 			}
 
-		return mCoordinates;
+		return mEncodedCoords;
 		}
 
+	/**
+	 * Encodes the molecule's atom coordinates into a compact String. Together with the
+	 * idcode the coordinate string can be passed to the IDCodeParser to recreate the
+	 * original molecule including coordinates.<br>
+	 * If keepPositionAndScale==false, then coordinate encoding will be relative,
+	 * i.e. scale and absolute positions get lost during the encoding.
+	 * Otherwise the encoding retains scale and absolute positions.<br>
+	 * If the molecule has 3D-coordinates and if there are no implicit hydrogen atoms,
+	 * i.e. all hydrogen atoms are explicitly available with their coordinates, then
+	 * hydrogen 3D-coordinates are also encoded despite the fact that the idcode itself does
+	 * not contain hydrogen atoms, because it must be canonical.
+	 * @param keepPositionAndScale if false, then coordinates are scaled to an average bond length of 1.5 units
+	 * @param atomCoordinates external atom coordinate set for the same molecule, e.g. from a Conformer
+	 * @return
+	 */
+	public String getEncodedCoordinates(boolean keepPositionAndScale, Coordinates[] atomCoordinates) {
+		if (mEncodedCoords == null) {
+			generateGraph();
+			encodeCoordinates(keepPositionAndScale, atomCoordinates);
+			}
 
-/*	private void encodeCoordinates(boolean keepAbsoluteValues) {
+		return mEncodedCoords;
+		}
+
+	private void encodeCoordinates(boolean keepPositionAndScale, Coordinates[] coords) {
 		if (mMol.getAtoms() == 0) {
-			mCoordinates = "";
-			return;
-			}
-
-		float maxDelta = 0.0f;
-		for (int i=1; i<mMol.getAtoms(); i++) {
-			int atom = mGraphAtom[i];
-			int from = (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]];
-
-			float deltaX = (from == -1) ?
-							Math.abs(mMol.getAtomX(atom) - mMol.getAtomX(mGraphAtom[0])) / 8.0f
-						  : Math.abs(mMol.getAtomX(atom) - mMol.getAtomX(from));
-			if (maxDelta < deltaX)
-				maxDelta = deltaX;
-
-			float deltaY = (from == -1) ?
-							Math.abs(mMol.getAtomY(atom) - mMol.getAtomY(mGraphAtom[0])) / 8.0f
-						  : Math.abs(mMol.getAtomY(atom) - mMol.getAtomY(from));
-			if (maxDelta < deltaY)
-				maxDelta = deltaY;
-
-			if (mZCoordinatesAvailable) {
-				float deltaZ = (from == -1) ?
-								Math.abs(mMol.getAtomZ(atom) - mMol.getAtomZ(mGraphAtom[0])) / 8.0f
-							  : Math.abs(mMol.getAtomZ(atom) - mMol.getAtomZ(from));
-				if (maxDelta < deltaZ)
-					maxDelta = deltaZ;
-				}
-			}
-
-		if (maxDelta == 0.0) {
-			mCoordinates = "";
-			return;
-			}
-
-		float increment = maxDelta / 43.0f;
-		float halfIncrement = increment / 2.0f;
-
-		StringBuilder coordinateBuffer = new StringBuilder();
-
-		for (int i=1; i<mMol.getAtoms(); i++) {
-			int atom = mGraphAtom[i];
-			int from = (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]];
-
-			float deltaX = (from == -1) ?
-							(mMol.getAtomX(atom) - mMol.getAtomX(mGraphAtom[0])) / 8.0f
-						   : mMol.getAtomX(atom) - mMol.getAtomX(from);
-
-							float deltaY = (from == -1) ?
-							(mMol.getAtomY(atom) - mMol.getAtomY(mGraphAtom[0])) / 8.0f
-						   : mMol.getAtomY(atom) - mMol.getAtomY(from);
-
-			coordinateBuffer.append((char)(40 + (int)((maxDelta + deltaX + halfIncrement) / increment)));
-			coordinateBuffer.append((char)(40 + (int)((maxDelta + deltaY + halfIncrement) / increment)));
-			}
-
-		if (mZCoordinatesAvailable) {
-			for (int i=1; i<mMol.getAtoms(); i++) {
-				int atom = mGraphAtom[i];
-				int from = (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]];
-
-				float deltaZ = (from == -1) ?
-								(mMol.getAtomZ(atom) - mMol.getAtomZ(mGraphAtom[0])) / 8.0f
-							   : mMol.getAtomZ(atom) - mMol.getAtomZ(from);
-
-				coordinateBuffer.append((char)(40 + (int)((maxDelta + deltaZ + halfIncrement) / increment)));
-				}
-			}
-
-		if (keepAbsoluteValues) {
-			coordinateBuffer.append('&');	// old faulty encoding started with "'"
-
-			int avblInt = encodeABVL(mMol.getAverageBondLength(), 7396);
-			coordinateBuffer.append((char)(40 + avblInt/86));
-			coordinateBuffer.append((char)(40 + avblInt%86));
-
-			int xInt = encodeShift(mMol.getAtomX(mGraphAtom[0]), 7396);
-			coordinateBuffer.append((char)(40 + xInt/86));
-			coordinateBuffer.append((char)(40 + xInt%86));
-
-			int yInt = encodeShift(mMol.getAtomY(mGraphAtom[0]), 7396);
-			coordinateBuffer.append((char)(40 + yInt/86));
-			coordinateBuffer.append((char)(40 + yInt%86));
-			if (mZCoordinatesAvailable) {
-				int zInt = encodeShift(mMol.getAtomZ(mGraphAtom[0]), 7396);
-				coordinateBuffer.append((char)(40 + zInt/86));
-				coordinateBuffer.append((char)(40 + zInt%86));
-				}
-			}
-		
-		mCoordinates = coordinateBuffer.toString();
-		}	*/
-
-	private void encodeCoordinates(boolean keepPositionAndScale) {
-		if (mMol.getAtoms() == 0) {
-			mCoordinates = "";
+			mEncodedCoords = "";
 			return;
 			}
 
@@ -3360,17 +3392,17 @@ System.out.println();
 
 		double maxDelta = 0.0;
 		for (int i=1; i<mMol.getAtoms(); i++)
-			maxDelta = getMaxDelta(mGraphAtom[i], (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]], maxDelta);
+			maxDelta = getMaxDelta(mGraphAtom[i], (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]], maxDelta, coords);
 		if (includeHydrogenCoordinates) {
 			for (int i=0; i<mMol.getAtoms(); i++) {
 				int atom = mGraphAtom[i];
 				for (int j=mMol.getConnAtoms(atom); j<mMol.getAllConnAtoms(atom); j++)
-					maxDelta = getMaxDelta(mMol.getConnAtom(atom, j), atom, maxDelta);
+					maxDelta = getMaxDelta(mMol.getConnAtom(atom, j), atom, maxDelta, coords);
 				}
 			}
 
-		if (maxDelta == 0.0) {
-			mCoordinates = "";
+		if (mMol.getAtoms() > 1 && maxDelta == 0.0) {
+			mEncodedCoords = "";
 			return;
 			}
 
@@ -3379,47 +3411,50 @@ System.out.println();
 		double maxDeltaPlusHalfIncrement = maxDelta + increment / 2.0;
 
 		for (int i=1; i<mMol.getAtoms(); i++)
-			encodeAtomCoords(mGraphAtom[i], (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]], maxDeltaPlusHalfIncrement, increment, resolutionBits);
+			encodeCoords(mGraphAtom[i], (mGraphFrom[i] == -1) ? -1 : mGraphAtom[mGraphFrom[i]], maxDeltaPlusHalfIncrement, increment, resolutionBits, coords);
 		if (includeHydrogenCoordinates) {
 			for (int i=0; i<mMol.getAtoms(); i++) {
 				int atom = mGraphAtom[i];
 				for (int j=mMol.getConnAtoms(atom); j<mMol.getAllConnAtoms(atom); j++)
-					encodeAtomCoords(mMol.getConnAtom(atom, j), atom, maxDeltaPlusHalfIncrement, increment, resolutionBits);
+					encodeCoords(mMol.getConnAtom(atom, j), atom, maxDeltaPlusHalfIncrement, increment, resolutionBits, coords);
 				}
 			}
 
 		if (keepPositionAndScale) {
 			double avblDefault = mZCoordinatesAvailable ? 1.5 : Molecule.getDefaultAverageBondLength();
-			double avbl = mMol.getAverageBondLength(mMol.getAtoms(), mMol.getBonds(), avblDefault);
+			double avbl = mMol.getAverageBondLength(
+					includeHydrogenCoordinates ? mMol.getAllAtoms() : mMol.getAtoms(),
+					includeHydrogenCoordinates ? mMol.getAllBonds() : mMol.getBonds(),
+					avblDefault, coords);
 			encodeBits(encodeABVL(avbl, binCount), resolutionBits);
 
-			encodeBits(encodeShift(mMol.getAtomX(mGraphAtom[0]) / avbl, binCount), resolutionBits);
-			encodeBits(encodeShift(mMol.getAtomY(mGraphAtom[0]) / avbl, binCount), resolutionBits);
+			encodeBits(encodeShift(coords[mGraphAtom[0]].x / avbl, binCount), resolutionBits);
+			encodeBits(encodeShift(coords[mGraphAtom[0]].y / avbl, binCount), resolutionBits);
 
 			if (mZCoordinatesAvailable)
-				encodeBits(encodeShift(mMol.getAtomZ(mGraphAtom[0]) / avbl, binCount), resolutionBits);
+				encodeBits(encodeShift(coords[mGraphAtom[0]].z / avbl, binCount), resolutionBits);
 			}
 
-		mCoordinates = encodeBitsEnd();
+		mEncodedCoords = encodeBitsEnd();
 		}
 
-	private double getMaxDelta(int atom, int from, double maxDelta) {
+	private double getMaxDelta(int atom, int from, double maxDelta, Coordinates[] coords) {
 		double deltaX = (from == -1) ?
-						Math.abs(mMol.getAtomX(atom) - mMol.getAtomX(mGraphAtom[0])) / 8.0
-					  : Math.abs(mMol.getAtomX(atom) - mMol.getAtomX(from));
+						Math.abs(coords[atom].x - coords[mGraphAtom[0]].x) / 8.0
+					  : Math.abs(coords[atom].x - coords[from].x);
 		if (maxDelta < deltaX)
 			maxDelta = deltaX;
 
 		double deltaY = (from == -1) ?
-						Math.abs(mMol.getAtomY(atom) - mMol.getAtomY(mGraphAtom[0])) / 8.0
-					  : Math.abs(mMol.getAtomY(atom) - mMol.getAtomY(from));
+						Math.abs(coords[atom].y - coords[mGraphAtom[0]].y) / 8.0
+					  : Math.abs(coords[atom].y - coords[from].y);
 		if (maxDelta < deltaY)
 			maxDelta = deltaY;
 
 		if (mZCoordinatesAvailable) {
 			double deltaZ = (from == -1) ?
-							Math.abs(mMol.getAtomZ(atom) - mMol.getAtomZ(mGraphAtom[0])) / 8.0
-						  : Math.abs(mMol.getAtomZ(atom) - mMol.getAtomZ(from));
+							Math.abs(coords[atom].z - coords[mGraphAtom[0]].z) / 8.0
+						  : Math.abs(coords[atom].z - coords[from].z);
 			if (maxDelta < deltaZ)
 				maxDelta = deltaZ;
 			}
@@ -3427,22 +3462,22 @@ System.out.println();
 		return maxDelta;
 		}
 
-	private void encodeAtomCoords(int atom, int from, double maxDeltaPlusHalfIncrement, double increment, int resolutionBits) {
+	private void encodeCoords(int atom, int from, double maxDeltaPlusHalfIncrement, double increment, int resolutionBits, Coordinates[] coords) {
 		double deltaX = (from == -1) ?
-						(mMol.getAtomX(atom) - mMol.getAtomX(mGraphAtom[0])) / 8.0
-					   : mMol.getAtomX(atom) - mMol.getAtomX(from);
+						(coords[atom].x - coords[mGraphAtom[0]].x) / 8.0
+					   : coords[atom].x - coords[from].x;
 
 		double deltaY = (from == -1) ?
-						(mMol.getAtomY(atom) - mMol.getAtomY(mGraphAtom[0])) / 8.0
-					   : mMol.getAtomY(atom) - mMol.getAtomY(from);
+						(coords[atom].y - coords[mGraphAtom[0]].y) / 8.0
+					   : coords[atom].y - coords[from].y;
 
 		encodeBits((int)((maxDeltaPlusHalfIncrement + deltaX) / increment), resolutionBits);
 		encodeBits((int)((maxDeltaPlusHalfIncrement + deltaY) / increment), resolutionBits);
 
 		if (mZCoordinatesAvailable) {
 			double deltaZ = (from == -1) ?
-							(mMol.getAtomZ(atom) - mMol.getAtomZ(mGraphAtom[0])) / 8.0
-						   : mMol.getAtomZ(atom) - mMol.getAtomZ(from);
+							(coords[atom].z - coords[mGraphAtom[0]].z) / 8.0
+						   : coords[atom].z - coords[from].z;
 
 			encodeBits((int)((maxDeltaPlusHalfIncrement + deltaZ) / increment), resolutionBits);
 			}
@@ -3499,7 +3534,7 @@ System.out.println();
 			return;
 			}
 
-		int nbits = idGetNeededBits(maxMapNo);
+		int nbits = getNeededBits(maxMapNo);
 		encodeBitsStart(true);
 		encodeBits(nbits, 4);
 		encodeBits(autoMappingFound ? 1 : 0, 1);
@@ -3514,18 +3549,19 @@ System.out.println();
 		}
 
 
+	/**
+	 * Creates parities based on atom indices in graph rather than on priority values.
+	 * These values are more meaningful to be written into idcodes, because they allow
+	 * to create coordinates or running Configuration aware substructure searches on
+	 * molecules creates from idcode without the necessity to recreate the priority values.
+	 */
 	private void idGenerateConfigurations() {
-		// Creates parities based on atom indices in graph rather than on priority values.
-		// These values are more meaningful to be written into idcodes, because they allow
-		// to create coordinates or running Configuration aware substructure searches on
-		// molecules creates from idcode without the necessity to recreate the priority values.
-
 		mTHConfiguration = new byte[mMol.getAtoms()];
 
 		for (int atom=0; atom<mMol.getAtoms(); atom++) {
 			if (mTHParity[atom] == Molecule.cAtomParity1
 			 || mTHParity[atom] == Molecule.cAtomParity2) {
-				boolean inversion = false;
+				boolean inversion = mTHParityIsMesoInverted[atom];
 				if (mMol.isCentralAlleneAtom(atom)) {
 					for (int i=0; i<mMol.getConnAtoms(atom); i++) {
 						int connAtom = mMol.getConnAtom(atom,i);
@@ -3594,78 +3630,6 @@ System.out.println();
 		}
 
 
-/*	private void idNormalizeConfigurations() {
-		// Atom TH-parities of type ABS in meso fragments can be defined in
-		// two degenerate ways. Normalize them based on the current mCanRank
-		if (mMesoHelper != null) {
-			mMesoHelper.normalizeFragmentsAbsAtoms(mCanRank, mTHConfiguration);
-			}
-
-		// Atom TH-parities of ESR-AND or ESR-OR groups are up to now
-		// arbitrary values, i.e. one of two possible ways of encoding
-		// the group's relative parity information.
-		// First we create for every ESR group a list of its atoms.
-		// All parities of a list's atoms are then normalized by inverting
-		// all parities of a group if the parity of the highest ranking
-		// group member is parity2.
-
-		int count = 0;
-		for (int atom=0; atom<mMol.getAtoms(); atom++)
-			if (canIsMemberOfESRGroup(atom))
-				count++;
-
-		if (count == 0)
-			return;
-
-		int[] parity = new int[count];
-		count = 0;
-		for (int atom=0; atom<mMol.getAtoms(); atom++) {
-			if (canIsMemberOfESRGroup(atom)) {
-				parity[count] = (mTHESRType[atom] << 29)
-							  | (mTHESRGroup[atom] << 24)
-							  | (mCanRank[atom] << 12)
-							  | atom;
-				count++;
-				}
-			}
-
-		Arrays.sort(parity);
-		int groupBase = 0;
-		int nextGroupBase = 0;
-		int groupID = parity[0] & 0xff000000;
-		while (true) {
-			nextGroupBase++;
-			if (nextGroupBase == parity.length
-			 || groupID != (parity[nextGroupBase] & 0xff000000)) {
-				int[] atomList = new int[nextGroupBase-groupBase];
-				for (int i=groupBase; i<nextGroupBase; i++)
-					atomList[i-groupBase] = parity[i] & 0x00000fff;
-				idNormalizeConfigurations(atomList);
-
-				if (nextGroupBase == parity.length)
-					break;
-
-				groupID = (parity[nextGroupBase] & 0xff000000);
-				groupBase = nextGroupBase;
-				}
-			}
-		}
-
-
-	private void idNormalizeConfigurations(int[] atomList) {
-			// atomList is sorted by mCanRank with the lowest rank first
-		if (mTHParity[atomList[atomList.length-1]] == Molecule.cAtomParity2) {
-			for (int i=0; i<atomList.length; i++) {
-				int atom = atomList[i];
-				if (mTHConfiguration[atom] == Molecule.cAtomParity1)
-					mTHConfiguration[atom] = Molecule.cAtomParity2;
-				else if (mTHConfiguration[atom] == Molecule.cAtomParity2)
-					mTHConfiguration[atom] = Molecule.cAtomParity1;
-				}
-			}
-		}*/
-
-	
 	private void idNormalizeESRGroupNumbers() {
 		idNormalizeESRGroupNumbers(Molecule.cESRTypeAnd);
 		idNormalizeESRGroupNumbers(Molecule.cESRTypeOr);
@@ -3736,7 +3700,25 @@ System.out.println();
 		}
 
 
-	private void encodeBits(int data, int bits) {
+	private void encodeFeatureNo(int codeNo) {
+		for (int i=0; i<mFeatureBlock; i++)
+			codeNo -= 16;
+
+		if (codeNo < 0)
+			System.out.println("ERROR in Canonizer: Code unexpectedly low.");
+
+		while (codeNo > 15) {
+			encodeBits(1, 1);   //  more data to come
+			encodeBits(15, 4);  //  15 = datatype 'start next feature set'
+			codeNo -= 16;
+			mFeatureBlock++;
+			}
+
+		encodeBits(1, 1);   // more features to come
+		encodeBits(codeNo, 4);
+		}
+
+	private void encodeBits(long data, int bits) {
 //System.out.println(bits+" bits:"+data+"  mode="+mode);
 		while (bits != 0) {
 			if (mEncodingBitsAvail == 0) {
@@ -3764,10 +3746,14 @@ System.out.println();
 		}
 
 
-	private int idGetNeededBits(int no) {
+	/**
+	 * @param maxNo highest possible index of some kind
+	 * @return number of bits needed to represent numbers up to maxNo
+	 */
+	public static int getNeededBits(int maxNo) {
 		int bits = 0;
-		while (no > 0) {
-			no >>= 1;
+		while (maxNo > 0) {
+			maxNo >>= 1;
 			bits++;
 			}
 		return bits;
@@ -3785,6 +3771,25 @@ System.out.println();
 
 
 	/**
+	 * Returns the atom's enhanced stereo representation type.
+	 * @param atom
+	 * @return one of the Molecule.cESRTypeXXX constants
+	 */
+	public int getTHESRType(int atom) {
+		return mTHESRType[atom];
+		}
+
+
+	/**
+	 * @param atom
+	 * @return whether this atom's TH-parity is pseudo
+	 */
+	public boolean isPseudoTHParity(int atom) {
+		return mTHParityIsPseudo[atom];
+		}
+
+
+	/**
 	 * Returns the absolute bond parity, which is based on priority ranks.
 	 * @param bond
 	 * @return one of the Molecule.cBondParityXXX constants
@@ -3792,6 +3797,25 @@ System.out.println();
 	public int getEZParity(int bond) {
 		return mEZParity[bond];
 		}
+
+
+	/**
+	 * Returns the bond's enhanced stereo representation type.
+	 * @param bond
+	 * @return one of the Molecule.cESRTypeXXX constants
+	 */
+	public int getEZESRType(int bond) {
+		return mEZESRType[bond];
+	}
+
+
+	/**
+	 * @param bond
+	 * @return whether this bond's EZ-parity is pseudo
+	 */
+	public boolean isPseudoEZParity(int bond) {
+		return mEZParityIsPseudo[bond];
+	}
 
 
 	/**
@@ -3833,17 +3857,80 @@ System.out.println();
 		}
 
 
-	protected void setParities() {
-		// Creates parities based on atom indices of original molecule and
-		// stores them in molecule. It also set the stereo center flag.
+	/**
+	 * This normalizes all absolute tetrahedral-, allene- and atrop-parities within the molecule.
+	 * This is done by finding the lowest atom rank that is shared by an odd number of
+	 * atoms with determines parities, not counting unknown and none.
+	 * If there number of parity2 atoms is higher than parity1 atoms of that rank, then
+	 * all parities are inverted.<br>
+	 * You may call this method before creating the idcode from this Canonizer to convert
+	 * internal parity information to the noermalized enantiomer. When calling getIDCode()
+	 * afterwards, the idcode represents the normalized enantiomer. Stereo information of
+	 * the underlying molecule is not touched.
+	 * @return true, if all internal parities were inverted
+	 */
+	public boolean normalizeEnantiomer() {
+		int[] parityCount = new int[mNoOfRanks + 1];
+		for (int atom=0; atom<mMol.getAtoms(); atom++) {
+			if (mMol.getAtomESRType(atom) == Molecule.cESRTypeAbs) {
+				if (mTHParity[atom] == Molecule.cAtomParity1)
+					parityCount[mCanRank[atom]]++;
+				else if (mTHParity[atom] == Molecule.cAtomParity2)
+					parityCount[mCanRank[atom]]--;
+				}
+			}
+		for (int bond=0; bond<mMol.getBonds(); bond++) {
+			if (mMol.getBondOrder(bond) == 1 && mMol.getBondESRType(bond) == Molecule.cESRTypeAbs) {
+				if (mEZParity[bond] == Molecule.cBondParityEor1) {
+					parityCount[mCanRank[mMol.getBondAtom(0, bond)]]++;
+					parityCount[mCanRank[mMol.getBondAtom(1, bond)]]++;
+					}
+				else if (mEZParity[bond] == Molecule.cBondParityZor2) {
+					parityCount[mCanRank[mMol.getBondAtom(0, bond)]]--;
+					parityCount[mCanRank[mMol.getBondAtom(1, bond)]]--;
+					}
+				}
+			}
+		for (int rank=1; rank<=mNoOfRanks; rank++) {
+			if (parityCount[rank] != 0) {
+				boolean invert = (parityCount[rank] < 0);
+				if (invert) {
+					for (int atom=0; atom<mMol.getAtoms(); atom++) {
+						if (mMol.getAtomESRType(atom) == Molecule.cESRTypeAbs) {
+							if (mTHParity[atom] == Molecule.cAtomParity1)
+								mTHParity[atom] = Molecule.cAtomParity2;
+							else if (mTHParity[atom] == Molecule.cAtomParity2)
+								mTHParity[atom] = Molecule.cAtomParity1;
+							}
+						}
+					for (int bond=0; bond<mMol.getBonds(); bond++) {
+						if (mMol.getBondOrder(bond) == 1 && mMol.getBondESRType(bond) == Molecule.cESRTypeAbs) {
+							if (mEZParity[bond] == Molecule.cBondParityEor1)
+								mEZParity[bond] = Molecule.cBondParityZor2;
+							else if (mEZParity[bond] == Molecule.cBondParityZor2)
+								mEZParity[bond] = Molecule.cBondParityEor1;
+							}
+						}
+					}
+				return invert;
+				}
+			}
+
+		return false;
+		}
+
+	/**
+	 * Creates parities based on atom indices of original molecule and
+	 * copies them back into that molecule. It also sets the stereo center flag.
+	 * These atom parities are not normalized (e.g. in racemic or meso groups)
+	 * and reflect the original molecule's up/down bonds.
+	 */
+	public void setParities() {
 		for (int atom=0; atom<mMol.getAtoms(); atom++) {
 			if (mTHParity[atom] == Molecule.cAtomParity1
 			 || mTHParity[atom] == Molecule.cAtomParity2) {
 				boolean inversion = false;
-				if (mMol.getAtomPi(atom) != 0
-				 && mMol.getConnAtoms(atom) == 2
-				 && mMol.getConnBondOrder(atom,0) == 2
-				 && mMol.getConnBondOrder(atom,1) == 2) {   // allene parities
+				if (mMol.isCentralAlleneAtom(atom)) {   // allene parities
 					for (int i=0; i<mMol.getConnAtoms(atom); i++) {
 						int connAtom = mMol.getConnAtom(atom,i);
 						int neighbours = 0;
@@ -3933,12 +4020,12 @@ System.out.println();
 		  || mTHParity[atom] == Molecule.cAtomParity2)) {
 			boolean invertedOrder = false;
 
-			if (mMol.getAtomPi(atom) == 2) {	// allene
+			if (mMol.getAtomPi(atom) == 2 && mMol.getConnAtoms(atom) == 2) {	// allene
 				try {
 					for (int i=0; i<2; i++) {
 						int alleneAtom = mMol.getConnAtom(atom,i);
 						if (mMol.getConnAtoms(alleneAtom) == 3) {
-							int connAtom[] = new int[2];
+							int[] connAtom = new int[2];
 							int count = 0;
 							for (int j=0; j<mMol.getConnAtoms(alleneAtom); j++)
 								if (mMol.getConnBondOrder(alleneAtom,j) == 1)
@@ -3987,7 +4074,7 @@ System.out.println();
 				for (int i=0; i<2; i++) {
 					int bondAtom = mMol.getBondAtom(i,bond);
 					if (mMol.getConnAtoms(bondAtom) == 3) {
-						int connAtom[] = new int[2];
+						int[] connAtom = new int[2];
 						int count = 0;
 						for (int j=0; j<mMol.getConnAtoms(bondAtom); j++)
 							if (mMol.getConnBond(bondAtom,j) != bond)
@@ -4013,7 +4100,7 @@ System.out.println();
 
 	private int[] cipGetOrderedConns(int atom) throws Exception {
 		int noOfConns = mMol.getAllConnAtoms(atom);
-		int orderedConn[] = new int[noOfConns];
+		int[] orderedConn = new int[noOfConns];
 		for (int i=0; i<noOfConns; i++)
 			orderedConn[i] = mMol.getConnAtom(atom,i);
 		for (int i=noOfConns; i>1; i--) {
@@ -4052,12 +4139,12 @@ System.out.println();
 
 		int graphSize = mMol.getAtoms();
 
-		int graphAtom[] = new int[graphSize];
-		int graphParent[] = new int[graphSize];
-		int graphRank[] = new int[graphSize];
-		boolean graphIsPseudo[] = new boolean[graphSize];
+		int[] graphAtom = new int[graphSize];
+		int[] graphParent = new int[graphSize];
+		int[] graphRank = new int[graphSize];
+		boolean[] graphIsPseudo = new boolean[graphSize];
 
-		boolean atomUsed[] = new boolean[mMol.getAllAtoms()];
+		boolean[] atomUsed = new boolean[mMol.getAllAtoms()];
 
 		graphAtom[0] = rootAtom;
 		graphAtom[1] = atom1;
@@ -4104,7 +4191,7 @@ System.out.println();
 							delocalizedBondCount++;
 							delocalizedMeanAtomicNo += mMol.getAtomicNo(candidate);
 							}
-						else {
+						else if (candidate != rootAtom) {   // treat double bond at rootAtom stereo center as single bond
 							// add pseudo atoms for double and triple bonds
 							for (int j=1; j<mMol.getConnBondOrder(currentAtom, i); j++) {
 								highest++;
@@ -4191,8 +4278,8 @@ System.out.println();
 			// Locate parent atoms with equal ranks that may be distinguished
 			// by attachments on current level. Adjust parent ranks accordingly
 			// and propagate rank distinctions upwards the hierarchy.
-			cipUpdateParentRanking(graphIsPseudo, graphRank, graphParent,
-								   graphAtom, levelStart, currentLevel);
+			cipUpdateParentRanking(graphIsPseudo, graphRank, graphParent, graphAtom, levelStart, currentLevel);
+
 /*
 System.out.println("Ranking atomic numbers on currentLevel:"+currentLevel+" levelStart:"+levelStart[currentLevel]+" nextLevelStart:"+levelStart[currentLevel+1]);
 System.out.print(" graphAtoms:");
@@ -4293,7 +4380,7 @@ System.out.println("");
 		throw new Exception("no distinction applying CIP rules");
 		}
 
-	private boolean cipTryDistinguishBranches(boolean graphIsPseudo[],
+	private boolean cipTryDistinguishBranches(boolean[] graphIsPseudo,
 											  int[] graphRank,
 											  int[] graphParent,
 											  int[] graphAtom,
@@ -4351,7 +4438,7 @@ System.out.println("");
 		return copy;
 		}
 
-	private void cipUpdateParentRanking(boolean graphIsPseudo[],
+	private void cipUpdateParentRanking(boolean[] graphIsPseudo,
 										int[] graphRank,
 										int[] graphParent,
 										int[] graphAtom,
@@ -4522,7 +4609,7 @@ class EZHalfParity {
 	boolean	mRanksEqual;
 	boolean mInSameFragment;
 
-	protected EZHalfParity(ExtendedMolecule mol, int rank[], int atom1, int atom2) {
+	protected EZHalfParity(ExtendedMolecule mol, int[] rank, int atom1, int atom2) {
 		mMol = mol;
 		mRemoteAxialAtom = atom1;
 		mCentralAxialAtom = atom2;
@@ -4547,7 +4634,6 @@ class EZHalfParity {
 				mLowConn = connAtom;	// two symmetrical atoms connected to one double bond atom
 				mRanksEqual = true;
 				mInSameFragment = mMol.isRingBond(connBond);
-				continue;
 				}
 			else if (highRank < rank[connAtom]) {
 				highRank = rank[connAtom];
@@ -4605,18 +4691,31 @@ class EZHalfParity {
 		}
 	}
 
+class CanonizerBond implements Comparable<CanonizerBond> {
+	int maxAtomRank,minAtomRank,bond;
+
+	protected CanonizerBond(int atomRank1, int atomRank2, int bond) {
+		maxAtomRank = Math.max(atomRank1, atomRank2);
+		minAtomRank = Math.min(atomRank1, atomRank2);
+		this.bond = bond;
+		}
+
+	public int compareTo(CanonizerBond cb) {
+		if (maxAtomRank != cb.maxAtomRank)
+			return maxAtomRank > cb.maxAtomRank ? -1 : 1;
+		if (minAtomRank != cb.minAtomRank)
+			return minAtomRank > cb.minAtomRank ? -1 : 1;	 // we want high ranks first
+		return 0;
+		}
+	}
 
 class CanonizerFragment {
-	int		atom[];
-	int		bond[];
+	int[] atom;
+	int[] bond;
 
 	protected CanonizerFragment(int[] atom, int atoms, int[] bond, int bonds) {
-		this.atom = new int[atoms];
-		this.bond = new int[bonds];
-		for (int a=0; a<atoms; a++)
-			this.atom[a] = atom[a];
-		for (int b=0; b<bonds; b++)
-			this.bond[b] = bond[b];
+		this.atom = Arrays.copyOf(atom, atoms);
+		this.bond = Arrays.copyOf(bond, bonds);
 		}
 	}
 

@@ -1,3 +1,0 @@
-extends: cheminfo
-rules:
-  jest/prefer-strict-equal: off

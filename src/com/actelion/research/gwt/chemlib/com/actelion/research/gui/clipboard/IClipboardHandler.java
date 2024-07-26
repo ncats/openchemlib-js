@@ -32,11 +32,15 @@
 */
 package com.actelion.research.gui.clipboard;
 
-import com.actelion.research.chem.*;
+import com.actelion.research.chem.StereoMolecule;
 import com.actelion.research.chem.reaction.Reaction;
+
+import java.util.ArrayList;
 
 public interface IClipboardHandler {
 	public StereoMolecule pasteMolecule();
+	public StereoMolecule pasteMolecule(boolean prefer2D, int smartsMode);
+	public ArrayList<StereoMolecule> pasteMolecules();
 	public Reaction pasteReaction();
 	public boolean copyMolecule(String molfile);
 	public boolean copyMolecule(StereoMolecule mol);

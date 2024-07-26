@@ -16,13 +16,18 @@ public class JSConformerGenerator {
 	public static final int STRATEGY_ADAPTIVE_RANDOM = 4;
 
   public JSConformerGenerator(int seed) {
-    oclGenerator = new ConformerGenerator(seed);
+    oclGenerator = new ConformerGenerator(seed, false);
   }
 
   public JSMolecule getOneConformerAsMolecule(JSMolecule mol) {
     StereoMolecule result = oclGenerator.getOneConformerAsMolecule(mol.getStereoMolecule());
     return result == null ? null : mol;
   }
+
+  public native Object getOCL()
+  /*-{
+    return $wnd.OCL;
+  }-*/;
 
   public native boolean initializeConformers(JSMolecule mol, JavaScriptObject options)
   /*-{
@@ -54,9 +59,5 @@ public class JSConformerGenerator {
 
   public int getPotentialConformerCount() {
     return oclGenerator.getPotentialConformerCount();
-  }
-
-  public double getPreviousConformerContribution() {
-    return oclGenerator.getPreviousConformerContribution();
   }
 }

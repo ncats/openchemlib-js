@@ -33,11 +33,13 @@
 
 package com.actelion.research.chem;
 
-import java.awt.geom.Rectangle2D;
+import com.actelion.research.gui.generic.GenericRectangle;
+
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 
@@ -49,7 +51,8 @@ public class Molecule implements Serializable {
 	// be changed as well.
 	// In addition to the above requirement, the class name should not be obfuscated at all!
 
-	static final long serialVersionUID = 0x20100310;	// after splitting bond flags and query features
+//	static final long serialVersionUID = 0x20220517;	// after extending atom query features from int to long
+	static final long serialVersionUID = 0x20221130;	// after introducing quadruple and quintuple bonds
 
 	public static final int cMaxAtomicNo = 190;
 
@@ -81,27 +84,26 @@ public class Molecule implements Serializable {
 	public static final int cAtomColorDarkRed		= 0x0001C0;
 	private static final int cAtomFlagSelected 		= 0x000200;
 
-	protected static final int cAtomFlagsHelper		= 0x0003FC0F;
-	protected static final int cAtomFlagsHelper2	= 0x00007C08;
-	protected static final int cAtomFlagsHelper3	= 0x08038007;
+	protected static final int cAtomFlagsHelper2	= 0x00003C08;
+	protected static final int cAtomFlagsHelper3	= 0x0401C007;
+	protected static final int cAtomFlagsHelper		= cAtomFlagsHelper2 | cAtomFlagsHelper3;
 
 	protected static final int cAtomFlagsRingBonds	= 0x000C00;
 	protected static final int cAtomFlags2RingBonds = 0x000400;
 	protected static final int cAtomFlags3RingBonds = 0x000800;
 	protected static final int cAtomFlags4RingBonds = 0x000C00;
-	protected static final int cAtomFlagAromatic	= 0x001000;
-	protected static final int cAtomFlagAllylic		= 0x002000;
-	protected static final int cAtomFlagStabilized	= 0x004000;
+	protected static final int cAtomFlagAllylic		= 0x001000;
+	protected static final int cAtomFlagStabilized	= 0x002000;
 
-	private static final int cAtomFlagsCIPParity	= 0x018000;
-	private static final int cAtomFlagsCIPParityShift = 15;
+	private static final int cAtomFlagsCIPParity	= 0x00C000;
+	private static final int cAtomFlagsCIPParityShift = 14;
 	public static final int cAtomCIPParityNone		= 0x000000;
 	public static final int cAtomCIPParityRorM		= 0x000001;
 	public static final int cAtomCIPParitySorP		= 0x000002;
 	public static final int cAtomCIPParityProblem	= 0x000003;
 
-	protected static final int cAtomFlagStereoProblem = 0x020000;
-	protected static final int cAtomFlagMarked		= 0x040000;
+	protected static final int cAtomFlagStereoProblem = 0x010000;
+	protected static final int cAtomFlagMarked		= 0x020000;
 
 		// MDL's enhanced stereochemical representation (ESR group and type may be assigned
 		// to TH and allene stereo centers as well as to BINAP kind of stereo bonds)
@@ -111,19 +113,19 @@ public class Molecule implements Serializable {
 	public static final int cESRMaxGroups			= 32;
 	public static final int cESRGroupBits			= 5;
 
-	protected static final int cAtomFlagsESR		= 0x03F80000;
-	private static final int cAtomFlagsESRType		= 0x00180000;
-	private static final int cAtomFlagsESRTypeShift = 19;
-	private static final int cAtomFlagsESRGroup		= 0x03E00000;
-	private static final int cAtomFlagsESRGroupShift = 21;
+	protected static final int cAtomFlagsESR		= 0x01FC0000;
+	private static final int cAtomFlagsESRType		= 0x000C0000;
+	private static final int cAtomFlagsESRTypeShift = 18;
+	private static final int cAtomFlagsESRGroup		= 0x01F00000;
+	private static final int cAtomFlagsESRGroupShift = 20;
 
-	protected static final int cAtomFlagConfigurationUnknown = 0x04000000;
-	private static final int cAtomFlagIsStereoCenter = 0x08000000;
+	protected static final int cAtomFlagConfigurationUnknown = 0x02000000;
+	private static final int cAtomFlagIsStereoCenter = 0x04000000;
 
-	protected static final int cAtomFlagsValence	= 0xF0000000;
-	private static final int cAtomFlagsValenceShift = 28;
+	protected static final int cAtomFlagsValence	= 0x78000000;
+	private static final int cAtomFlagsValenceShift = 27;
 
-	public static final int cAtomQFNoOfBits			= 30;
+	public static final int cAtomQFNoOfBits			= 46;
 	public static final int cAtomQFAromStateBits	= 2;
 	public static final int cAtomQFAromStateShift	= 1;
 	public static final int cAtomQFRingStateBits	= 4;
@@ -134,62 +136,94 @@ public class Molecule implements Serializable {
 	public static final int cAtomQFPiElectronShift	= 14;
 	public static final int cAtomQFNeighbourBits	= 5;
 	public static final int cAtomQFNeighbourShift	= 17;
-	public static final int cAtomQFRingSizeBits		= 3;
-	public static final int cAtomQFRingSizeShift	= 22;
+	public static final int cAtomQFSmallRingSizeBits = 3;
+	public static final int cAtomQFSmallRingSizeShift = 22;
 	public static final int cAtomQFChargeBits		= 3;
 	public static final int cAtomQFChargeShift		= 25;
-	public static final int cAtomQFSimpleFeatures	= 0x0E3FC7FE;
-	public static final int cAtomQFNarrowing		= 0x0E3FC7FE;
-	public static final int cAtomQFAny				= 0x00000001;
-	public static final int cAtomQFAromState		= 0x00000006;
-	public static final int cAtomQFAromatic			= 0x00000002;
-	public static final int cAtomQFNotAromatic		= 0x00000004;
-	public static final int cAtomQFRingState		= 0x00000078;
-	public static final int cAtomQFNotChain			= 0x00000008;
-	public static final int cAtomQFNot2RingBonds	= 0x00000010;
-	public static final int cAtomQFNot3RingBonds	= 0x00000020;
-	public static final int cAtomQFNot4RingBonds	= 0x00000040;
-	public static final int cAtomQFHydrogen			= 0x00000780;
-	public static final int cAtomQFNot0Hydrogen		= 0x00000080;
-	public static final int cAtomQFNot1Hydrogen		= 0x00000100;
-	public static final int cAtomQFNot2Hydrogen		= 0x00000200;
-	public static final int cAtomQFNot3Hydrogen		= 0x00000400;
-	public static final int cAtomQFNoMoreNeighbours	= 0x00000800;
-	public static final int cAtomQFMoreNeighbours	= 0x00001000;
-	public static final int cAtomQFMatchStereo		= 0x00002000;
-	public static final int cAtomQFPiElectrons		= 0x0001C000;
-	public static final int cAtomQFNot0PiElectrons  = 0x00004000;
-	public static final int cAtomQFNot1PiElectron   = 0x00008000;
-	public static final int cAtomQFNot2PiElectrons  = 0x00010000;
-	public static final int cAtomQFNeighbours		= 0x003E0000;  // these QF refer to non-H neighbours
-	public static final int cAtomQFNot0Neighbours   = 0x00020000;
-	public static final int cAtomQFNot1Neighbour	= 0x00040000;
-	public static final int cAtomQFNot2Neighbours   = 0x00080000;
-	public static final int cAtomQFNot3Neighbours   = 0x00100000;
-	public static final int cAtomQFNot4Neighbours   = 0x00200000;  // this is not 4 or more neighbours
-	public static final int cAtomQFRingSize			= 0x01C00000;
-	public static final int cAtomQFCharge			= 0x0E000000;
-	public static final int cAtomQFNotChargeNeg		= 0x02000000;
-	public static final int cAtomQFNotCharge0		= 0x04000000;
-	public static final int cAtomQFNotChargePos		= 0x08000000;
-	public static final int cAtomQFFlatNitrogen		= 0x10000000;  // currently only used in TorsionDetail
-	public static final int cAtomQFExcludeGroup		= 0x20000000;  // these atoms must not exist in SS-matches
+	public static final int cAtomQFRxnParityBits	= 2;
+	public static final int cAtomQFRxnParityShift	= 30;
+	public static final int cAtomQFNewRingSizeBits	= 7;
+	public static final int cAtomQFNewRingSizeShift = 32;
+	public static final int cAtomQFENeighbourBits	= 5;
+	public static final int cAtomQFENeighbourShift	= 39;
+	public static final int cAtomQFStereoStateBits	= 2;
+	public static final int cAtomQFStereoStateShift = 44;
+	public static final long cAtomQFSimpleFeatures	= 0x00007F800E3FC7FEL;
+	public static final long cAtomQFNarrowing		= 0x00007FFF0FFFFFFEL;
+	public static final long cAtomQFAny				= 0x00000001;
+	public static final long cAtomQFAromState		= 0x0000400000000006L;
+	public static final long cAtomQFAromatic		= 0x00000002;
+	public static final long cAtomQFNotAromatic		= 0x00000004;
+	public static final long cAtomQFRingState		= 0x00000078;
+	public static final long cAtomQFNotChain		= 0x00000008;
+	public static final long cAtomQFNot2RingBonds	= 0x00000010;
+	public static final long cAtomQFNot3RingBonds	= 0x00000020;
+	public static final long cAtomQFNot4RingBonds	= 0x00000040;
+	public static final long cAtomQFHydrogen		= 0x00000780;
+	public static final long cAtomQFNot0Hydrogen	= 0x00000080;
+	public static final long cAtomQFNot1Hydrogen	= 0x00000100;
+	public static final long cAtomQFNot2Hydrogen	= 0x00000200;
+	public static final long cAtomQFNot3Hydrogen	= 0x00000400;
+	public static final long cAtomQFNoMoreNeighbours= 0x00000800;
+	public static final long cAtomQFMoreNeighbours	= 0x00001000;
+	public static final long cAtomQFMatchStereo		= 0x00002000;
+	public static final long cAtomQFPiElectrons		= 0x0001C000;
+	public static final long cAtomQFNot0PiElectrons = 0x00004000;
+	public static final long cAtomQFNot1PiElectron  = 0x00008000;
+	public static final long cAtomQFNot2PiElectrons = 0x00010000;
+	public static final long cAtomQFNeighbours		= 0x003E0000;  // these QF refer to non-H neighbours
+	public static final long cAtomQFNot0Neighbours  = 0x00020000;
+	public static final long cAtomQFNot1Neighbour	= 0x00040000;
+	public static final long cAtomQFNot2Neighbours  = 0x00080000;
+	public static final long cAtomQFNot3Neighbours  = 0x00100000;
+	public static final long cAtomQFNot4Neighbours  = 0x00200000;  // this is not 4-or-more neighbours
+	public static final long cAtomQFSmallRingSize   = 0x01C00000;  // legacy: used to just define the smallest ring an atom is member of
+	public static final long cAtomQFCharge			= 0x0E000000;
+	public static final long cAtomQFNotChargeNeg	= 0x02000000;
+	public static final long cAtomQFNotCharge0		= 0x04000000;
+	public static final long cAtomQFNotChargePos	= 0x08000000;
+	public static final long cAtomQFFlatNitrogen	= 0x0000000010000000L;  // Currently, only used in TorsionDetail
+	public static final long cAtomQFExcludeGroup	= 0x0000000020000000L;  // These atoms must not exist in SS-matches
+	public static final long cAtomQFRxnParityHint   = 0x00000000C0000000L;  // Retain,invert,racemise configuration in reaction
+	public static final long cAtomQFRxnParityRetain = 0x0000000040000000L;
+	public static final long cAtomQFRxnParityInvert = 0x0000000080000000L;
+	public static final long cAtomQFRxnParityRacemize=0x00000000C0000000L;
+	public static final long cAtomQFNewRingSize     = 0x0000007F00000000L;
+	public static final long cAtomQFRingSize0       = 0x0000000100000000L;
+	public static final long cAtomQFRingSize3       = 0x0000000200000000L;
+	public static final long cAtomQFRingSize4       = 0x0000000400000000L;
+	public static final long cAtomQFRingSize5       = 0x0000000800000000L;
+	public static final long cAtomQFRingSize6       = 0x0000001000000000L;
+	public static final long cAtomQFRingSize7       = 0x0000002000000000L;
+	public static final long cAtomQFRingSizeLarge   = 0x0000004000000000L;
+	public static final long cAtomQFENeighbours     = 0x00000F8000000000L;
+	public static final long cAtomQFNot0ENeighbours = 0x0000008000000000L;
+	public static final long cAtomQFNot1ENeighbour  = 0x0000010000000000L;
+	public static final long cAtomQFNot2ENeighbours = 0x0000020000000000L;
+	public static final long cAtomQFNot3ENeighbours = 0x0000040000000000L;
+	public static final long cAtomQFNot4ENeighbours = 0x0000080000000000L;
+	public static final long cAtomQFStereoState     = 0x0000300000000000L;
+	public static final long cAtomQFIsStereo        = 0x0000100000000000L;
+	public static final long cAtomQFIsNotStereo     = 0x0000200000000000L;
+	public static final long cAtomQFHeteroAromatic  = 0x0000400000000000L;
 
 	public static final int cBondTypeSingle			= 0x00000001;
 	public static final int cBondTypeDouble			= 0x00000002;
 	public static final int cBondTypeTriple			= 0x00000004;
-	public static final int cBondTypeDown			= 0x00000009;
-	public static final int cBondTypeUp				= 0x00000011;
-	public static final int cBondTypeCross			= 0x0000001A;
+	public static final int cBondTypeQuadruple		= 0x00000008;
+	public static final int cBondTypeQuintuple		= 0x00000010;
 	public static final int cBondTypeMetalLigand	= 0x00000020;
 	public static final int cBondTypeDelocalized	= 0x00000040;
-	public static final int cBondTypeDeleted		= 0x00000080;
-	public static final int cBondTypeIncreaseOrder  = 0x0000007F;
+	public static final int cBondTypeDown			= 0x00000081;
+	public static final int cBondTypeUp				= 0x00000101;
+	public static final int cBondTypeCross			= 0x00000182;
+	public static final int cBondTypeDeleted		= 0x00000200;
+	public static final int cBondTypeIncreaseOrder  = 0x000001FF;
 
-	protected static final int cBondTypeMaskSimple	= 0x00000067;	// masks
-	protected static final int cBondTypeMaskStereo	= 0x00000018;
+	public static final int cBondTypeMaskSimple 	= 0x0000007F;	// masks
+	public static final int cBondTypeMaskStereo	    = 0x00000180;
 
-	protected static final int cBondFlagsHelper2	= 0x000003C0;
+	protected static final int cBondFlagsHelper2	= 0x000002C0;
 	protected static final int cBondFlagsHelper3	= 0x0000003F;
 
 		// double bond E/Z parities based on atom positions in atom table
@@ -209,58 +243,63 @@ public class Molecule implements Serializable {
 
 	protected static final int cBondFlagRing		= 0x00000040;
 	protected static final int cBondFlagSmallRing	= 0x00000080;
-	protected static final int cBondFlagAromatic	= 0x00000100;
-	protected static final int cBondFlagDelocalized	= 0x00000200;
-	protected static final int cBondFlagsESR		= 0x0001FC00;
-	private static final int cBondFlagsESRType		= 0x00000C00;
-	private static final int cBondFlagsESRTypeShift = 10;
-	private static final int cBondFlagsESRGroup		= 0x0001F000;
-	private static final int cBondFlagsESRGroupShift = 12;
-	private static final int cBondFlagBGHilited		= 0x00020000;
-	private static final int cBondFlagFGHilited		= 0x00040000;
+	protected static final int cBondFlagsESR		= 0x00007F00;
+	private static final int cBondFlagsESRType		= 0x00000300;
+	private static final int cBondFlagsESRTypeShift = 8;
+	private static final int cBondFlagsESRGroup		= 0x00007C00;
+	private static final int cBondFlagsESRGroupShift = 10;
+	private static final int cBondFlagBGHilited		= 0x00008000;
+	private static final int cBondFlagFGHilited		= 0x00010000;
 
-	private static final int cBondParityUnknownOrNone = 0x1000000;
+	private static final int cBondParityUnknownOrNone = 0x0020000;
 	// This hint/flag is set by CoordinateInventor for double bonds without
 	// given EZ-parity because coordinates may imply a not intended EZ-parity.
 	// The setBondParity() method clears this flag. The Canonizer considers
 	// this flag when calculating EZ-parities.
 
-	public static final int cBondQFNoOfBits			= 21;
+	public static final int cBondQFNoOfBits			= 23;
 	public static final int cBondQFBondTypesBits	= 5;
 	public static final int cBondQFBondTypesShift	= 0;
+	public static final int cBondQFRareBondTypesBits = 2;
+	public static final int cBondQFRareBondTypesShift = 5;
 	public static final int cBondQFRingStateBits	= 2;
-	public static final int cBondQFRingStateShift	= 5;
+	public static final int cBondQFRingStateShift	= 7;
 	public static final int cBondQFBridgeBits		= 8;
-	public static final int cBondQFBridgeShift		= 7;
+	public static final int cBondQFBridgeShift		= 9;
 	public static final int cBondQFBridgeMinBits	= 4;
-	public static final int cBondQFBridgeMinShift   = 7;
+	public static final int cBondQFBridgeMinShift   = 9;
 	public static final int cBondQFBridgeSpanBits   = 4;
-	public static final int cBondQFBridgeSpanShift  = 11;
+	public static final int cBondQFBridgeSpanShift  = 13;
 	public static final int cBondQFRingSizeBits		= 3;
-	public static final int cBondQFRingSizeShift	= 15;
+	public static final int cBondQFRingSizeShift	= 17;
 	public static final int cBondQFAromStateBits	= 2;
-	public static final int cBondQFAromStateShift	= 19;
-	public static final int cBondQFAllFeatures		= 0x001FFFFF;
-	public static final int cBondQFSimpleFeatures	= 0x0018007F;
-	public static final int cBondQFNarrowing		= 0x00180060;
-	public static final int cBondQFBondTypes		= 0x0000001F;
-	public static final int cBondQFSingle			= 0x00000001;
-	public static final int cBondQFDouble			= 0x00000002;
-	public static final int cBondQFTriple			= 0x00000004;
-	public static final int cBondQFDelocalized		= 0x00000008;
-	public static final int cBondQFMetalLigand		= 0x00000010;
-	public static final int cBondQFRingState		= 0x00000060;
-	public static final int cBondQFNotRing			= 0x00000020;
-	public static final int cBondQFRing				= 0x00000040;
-	public static final int cBondQFBridge			= 0x00007F80;
-	public static final int cBondQFBridgeMin		= 0x00000780;
-	public static final int cBondQFBridgeSpan		= 0x00007800;
-	public static final int cBondQFRingSize			= 0x00038000;
-	public static final int cBondQFMatchStereo		= 0x00040000;
-	public static final int cBondQFAromState		= 0x00180000;
-	public static final int cBondQFAromatic			= 0x00080000;
-	public static final int cBondQFNotAromatic		= 0x00100000;
+	public static final int cBondQFAromStateShift	= 21;
+	public static final int cBondQFAllFeatures		= 0x00FFFFFF;
+	public static final int cBondQFSimpleFeatures	= 0x006001FF;
+	public static final int cBondQFNarrowing		= 0x00600180;
+	public static final int cBondQFBondTypes		= 0x0000001F;   // original 5 bond types for idcode
+	public static final int cBondQFRareBondTypes    = 0x00000060;   // using OR logic for all 7 bond types
+	public static final int cBondQFSingle           = 0x00000001;
+	public static final int cBondQFDouble           = 0x00000002;
+	public static final int cBondQFTriple           = 0x00000004;
+	public static final int cBondQFDelocalized      = 0x00000008;
+	public static final int cBondQFMetalLigand      = 0x00000010;
+	public static final int cBondQFQuadruple        = 0x00000020;
+	public static final int cBondQFQuintuple        = 0x00000040;
+	public static final int cBondQFRingState		= 0x00000180;
+	public static final int cBondQFNotRing			= 0x00000080;
+	public static final int cBondQFRing				= 0x00000100;
+	public static final int cBondQFBridge			= 0x0001FE00;
+	public static final int cBondQFBridgeMin		= 0x00001E00;
+	public static final int cBondQFBridgeSpan		= 0x0001E000;
+	public static final int cBondQFRingSize			= 0x000E0000;
+	public static final int cBondQFMatchStereo		= 0x00100000;
+	public static final int cBondQFAromState		= 0x00600000;
+	public static final int cBondQFAromatic			= 0x00200000;
+	public static final int cBondQFNotAromatic		= 0x00400000;
+	public static final int cBondQFMatchFormalOrder = 0x00800000; // matches the formal bond order considering also cBondQFBondTypes in query
 
+	public static final int cHelperAll				= 0x00FF;
 	public static final int cHelperNone				= 0x0000;
 	public static final int cHelperBitNeighbours	= 0x0001;
 	public static final int cHelperBitRingsSimple	= 0x0002;	// small rings only, no aromaticity, no allylic nor stabilized flags
@@ -269,11 +308,10 @@ public class Molecule implements Serializable {
 	public static final int cHelperBitCIP			= 0x0010;
 
 	public static final int cHelperBitSymmetrySimple			= 0x0020;
-	public static final int cHelperBitSymmetryDiastereotopic	= 0x0040;
-	public static final int cHelperBitSymmetryEnantiotopic		= 0x0080;
-	public static final int cHelperBitIncludeNitrogenParities	= 0x0100;
+	public static final int cHelperBitSymmetryStereoHeterotopicity = 0x0040;
+	public static final int cHelperBitIncludeNitrogenParities	= 0x0080;
 
-	public static final int cHelperBitsStereo = 0x01F8;
+	public static final int cHelperBitsStereo = 0x00F8;
 
 	public static final int cHelperNeighbours = cHelperBitNeighbours;
 	public static final int cHelperRingsSimple = cHelperNeighbours | cHelperBitRingsSimple;
@@ -282,8 +320,7 @@ public class Molecule implements Serializable {
 	public static final int cHelperCIP = cHelperParities | cHelperBitCIP;
 
 	public static final int cHelperSymmetrySimple = cHelperCIP | cHelperBitSymmetrySimple;
-	public static final int cHelperSymmetryDiastereotopic = cHelperCIP | cHelperBitSymmetryDiastereotopic;
-	public static final int cHelperSymmetryEnantiotopic = cHelperCIP | cHelperBitSymmetryEnantiotopic;
+	public static final int cHelperSymmetryStereoHeterotopicity = cHelperCIP | cHelperBitSymmetryStereoHeterotopicity;
 
 	public static final int cChiralityIsomerCountMask   = 0x00FFFF;
 	public static final int cChiralityUnknown		  	= 0x000000;
@@ -295,13 +332,28 @@ public class Molecule implements Serializable {
 	public static final int cChiralityEpimers		 	= 0x060000;
 	public static final int cChiralityDiastereomers		= 0x070000; // this has added the number of diastereomers
 
-	private static final double cDefaultAVBL = 24.0;
+	public static final double cDefaultAVBL = 24.0;
 	private static double sDefaultAVBL = cDefaultAVBL;
 
 	public static final int cMoleculeColorDefault = 0;
 	public static final int cMoleculeColorNeutral = 1;
 
-	public static final String cAtomLabel[] = { "?",
+	public static final int cPseudoAtomsHydrogenIsotops = 1;    // D and T
+	public static final int cPseudoAtomsRGroups = 2;            // R1 to R16
+	public static final int cPseudoAtomsAGroups = 4;            // A1,A2,A3
+	public static final int cPseudoAtomR = 8;                   // R
+	public static final int cPseudoAtomA = 16;                  // A
+	public static final int cPseudoAtomX = 32;                  // X
+	public static final int cPseudoAtomsAminoAcids = 64;        // all 20 amino acid 3-letter codes
+	public static final int cPseudoAtomPolymer = 128;           // Pol
+	public static final int cPseudoAtomAttachmentPoint = 256;   // ?
+	public static final int cPseudoAtomsAll = 511;              // all of above
+
+	public static final int cDefaultAllowedPseudoAtoms = cPseudoAtomsHydrogenIsotops
+													   | cPseudoAtomsAminoAcids
+													   | cPseudoAtomAttachmentPoint;
+
+	public static final String[] cAtomLabel = { "?",
 		"H"  ,"He" ,"Li" ,"Be" ,"B"  ,"C"  ,"N"  ,"O"  ,
 		"F"  ,"Ne" ,"Na" ,"Mg" ,"Al" ,"Si" ,"P"  ,"S"  ,
 		"Cl" ,"Ar" ,"K"  ,"Ca" ,"Sc" ,"Ti" ,"V"  ,"Cr" ,
@@ -327,7 +379,7 @@ public class Molecule implements Serializable {
 		"Glu","Gly","His","Ile","Leu","Lys","Met","Phe",
 		"Pro","Ser","Thr","Trp","Tyr","Val" };
 
-	public static final short cRoundedMass[] = { 0,
+	public static final short[] cRoundedMass = { 0,
 	   1,	  4,	  7,	  9,	 11,	 12,   //  H  ,He ,Li ,Be ,B  ,C  ,
 	  14,	 16,	 19,	 20,	 23,	 24,   //  N , O  ,F  ,Ne ,Na ,Mg ,
 	  27,	 28,	 31,	 32,	 35,	 40,   //  Al ,Si ,P  ,S  ,Cl ,Ar ,
@@ -362,7 +414,9 @@ public class Molecule implements Serializable {
 	 101,	186,	163,	 99 };					//  Thr,Trp,Tyr,Val,
 
 	public static final int cDefaultAtomValence = 6;
-	public static final byte cAtomValence[][] = {null,
+	private static final byte[] cDefaultAtomValences = { cDefaultAtomValence };
+	private static final byte[] cAminoAcidValences = { 2 };
+	public static final byte[][] cAtomValence = {null,
 			{1}, {0}, {1}, {2}, {3}, {4}, {3}, {2}, {1}, {0},			// H to Ne
 			{1}, {2}, {3}, {4}, {3, 5}, {2, 4, 6}, {1, 3, 5, 7}, {0},	// Na to Ar
 			{1}, {2}, null, null, null, null, null, null, null, null,	// K to Ni
@@ -387,7 +441,7 @@ public class Molecule implements Serializable {
 	};
 
 	// Taken from http://www.cabrillo.edu/~aromero/Common%20Files/Periodic%20Table%20(Common%20Ionic%20Charges).pdf
-	public static final byte cCommonOxidationState[][] = { null,
+	public static final byte[][] cCommonOxidationState = { null,
 			{1}, null, {1}, {2}, null, null,					//  H,  He, Li, Be, B,  C,
 			{-3}, {-2}, {-1}, null, {1}, {2},					//  N,  O,  F,  Ne, Na, Mg,
 			{3}, null, {-3}, {-2}, {-1}, null,					//  Al, Si, P,  S,  Cl, Ar,
@@ -414,16 +468,16 @@ public class Molecule implements Serializable {
 	transient protected int mValidHelperArrays;
 	transient protected int mAllAtoms;
 	transient protected int mAllBonds;
-	transient protected int mAtomicNo[];
-	transient protected int mAtomCharge[];
-	transient protected int mAtomMapNo[];
-	transient protected int mAtomMass[];
-	transient protected int mAtomFlags[];
-	transient protected int mAtomQueryFeatures[];
-	transient protected int mBondAtom[][];
-	transient protected int mBondType[];
-	transient protected int mBondFlags[];
-	transient protected int mBondQueryFeatures[];
+	transient protected int[] mAtomicNo;
+	transient protected int[] mAtomCharge;
+	transient protected int[] mAtomMapNo;
+	transient protected int[] mAtomMass;
+	transient protected int[] mAtomFlags;
+	transient protected long[] mAtomQueryFeatures;
+	transient protected int[][] mBondAtom;
+	transient protected int[] mBondType;
+	transient protected int[] mBondFlags;
+	transient protected int[] mBondQueryFeatures;
 	transient protected Coordinates[] mCoordinates;
 	transient protected boolean mIsFragment;
 	transient protected boolean mIsRacemate;	 	// to indicate a molfileV2's chiral flat to be 0
@@ -434,19 +488,84 @@ public class Molecule implements Serializable {
 
 	transient private int mMoleculeColor;
 	transient private double mZoomRotationX,mZoomRotationY;
-	transient private double mOriginalAngle[];
-	transient private double mOriginalDistance[];
+	transient private double[] mOriginalAngle;
+	transient private double[] mOriginalDistance;
 	transient private String mName;
 	transient private Object mUserData;
 
     public static int getAtomicNoFromLabel(String atomLabel) {
-		for (int i=1; i<cAtomLabel.length; i++)
-			if (atomLabel.equalsIgnoreCase(cAtomLabel[i]))
+	    return getAtomicNoFromLabel(atomLabel, cDefaultAllowedPseudoAtoms);
+		}
+
+	public static int getAtomicNoFromLabel(String atomLabel, int allowedPseudoAtomGroups) {
+    	if (((allowedPseudoAtomGroups & cPseudoAtomAttachmentPoint) != 0) && atomLabel.equals("?"))
+			return 0;
+
+		for (int i=1; i<=128; i++)
+			if (!atomLabel.equals("??") && atomLabel.equalsIgnoreCase(cAtomLabel[i]))
 				return i;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomsRGroups) != 0)
+			for (int i=129; i<=144; i++)
+				if (atomLabel.equalsIgnoreCase(cAtomLabel[i]))
+					return i;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomsAGroups) != 0)
+			for (int i=146; i<=148; i++)
+				if (atomLabel.equalsIgnoreCase(cAtomLabel[i]))
+					return i;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomsHydrogenIsotops) != 0)
+			for (int i=151; i<=152; i++)
+				if (atomLabel.equalsIgnoreCase(cAtomLabel[i]))
+					return i;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomX) != 0)
+			if (atomLabel.equalsIgnoreCase(cAtomLabel[153]))
+				return 153;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomR) != 0)
+			if (atomLabel.equalsIgnoreCase(cAtomLabel[154]))
+				return 154;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomA) != 0)
+			if (atomLabel.equalsIgnoreCase(cAtomLabel[145]))
+				return 145;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomPolymer) != 0)
+			if (atomLabel.equalsIgnoreCase(cAtomLabel[159]))
+				return 159;
+
+		if ((allowedPseudoAtomGroups & cPseudoAtomsAminoAcids) != 0)
+			for (int i=171; i<=190; i++)
+				if (atomLabel.equalsIgnoreCase(cAtomLabel[i]))
+					return i;
+
 		return 0;
 		}
 
+	/**
+	 * For any known atomicNo this returns all allowed atom valences.
+	 * For amino acid pseudo atoms it returns {2} and for all other atomicNos
+	 * this returns {cDefaultAtomValence}.
+	 * @param atomicNo
+	 * @return array of allowed valences with a guaranteed minimum size of 1
+	 */
+	public static byte[] getAllowedValences(int atomicNo) {
+    	return (atomicNo >= 0)
+		    && (atomicNo < cAtomValence.length)
+		    && (cAtomValence[atomicNo] != null) ? cAtomValence[atomicNo]
+			: (atomicNo >= 171 && atomicNo <= 190) ? cAminoAcidValences : cDefaultAtomValences;
+		}
 
+	/**
+	 * Calculates the angle of the line leading from (x1,y1) to (x2,y2).
+	 * @param x1
+	 * @param y1
+	 * @param x2
+	 * @param y2
+	 * @return -Pi to Pi
+	 */
 	public static double getAngle(double x1, double y1, double x2, double y2) {
 		double angle;
 		double xdiff = x2 - x1;
@@ -468,6 +587,12 @@ public class Molecule implements Serializable {
 		}
 
 
+	/**
+	 * Calculates the difference of two angles as angle1-angle2
+	 * @param angle1
+	 * @param angle2
+	 * @return -Pi to Pi
+	 */
 	public static double getAngleDif(double angle1, double angle2) {
 		double angleDif = angle1 - angle2;
 		while (angleDif < -Math.PI)
@@ -475,6 +600,27 @@ public class Molecule implements Serializable {
 		while (angleDif > Math.PI)
 			angleDif -= 2 * Math.PI;
 		return angleDif;
+		}
+
+
+	public static int bondTypeToOrder(int bondType) {
+		int simpleType = bondType & cBondTypeMaskSimple;
+		return (simpleType == cBondTypeSingle
+			 || simpleType == cBondTypeDelocalized) ? 1
+			  : simpleType == cBondTypeDouble ? 2
+			  : simpleType == cBondTypeTriple ? 3
+			  : simpleType == cBondTypeQuadruple ? 4
+			  : simpleType == cBondTypeQuintuple ? 5 : 0; // dative bonds
+		}
+
+
+	public static int bondOrderToType(int bondOrder, boolean useCrossBond) {
+		return bondOrder == 0 ? Molecule.cBondTypeMetalLigand
+			 : bondOrder == 1 ? Molecule.cBondTypeSingle
+			 : bondOrder == 2 ? (useCrossBond ? Molecule.cBondTypeCross : Molecule.cBondTypeDouble)
+			 : bondOrder == 3 ? Molecule.cBondTypeTriple
+			 : bondOrder == 4 ? Molecule.cBondTypeQuadruple
+							  : Molecule.cBondTypeQuintuple;
 		}
 
 
@@ -501,7 +647,7 @@ public class Molecule implements Serializable {
 			mCoordinates[i] = new Coordinates();
 		mAtomMass = new int[mMaxAtoms];
 		mAtomFlags = new int[mMaxAtoms];
-		mAtomQueryFeatures = new int[mMaxAtoms];
+		mAtomQueryFeatures = new long[mMaxAtoms];
 		mAtomList = null;
 		mAtomCustomLabel = null;
 		mBondAtom = new int[2][mMaxBonds];
@@ -704,7 +850,7 @@ public class Molecule implements Serializable {
 	 * @param aromatic
 	 * @return
 	 */
-	public boolean addRing(double x, double y, int ringSize, boolean aromatic) {
+	public boolean addRing(double x, double y, int ringSize, boolean aromatic, double bondLength) {
 		while(mAllAtoms + ringSize > mMaxAtoms)
 			setMaxAtoms(mMaxAtoms*2);
 		while(mAllBonds + ringSize > mMaxBonds)
@@ -712,16 +858,16 @@ public class Molecule implements Serializable {
 
 		int atom = findAtom(x,y);
 		if (atom != -1)
-			return addRingToAtom(atom, ringSize, aromatic);
+			return addRingToAtom(atom, ringSize, aromatic, bondLength);
 
 		int bond = findBond(x,y);
 		if (bond != -1)
-			return addRingToBond(bond, ringSize, aromatic);
+			return addRingToBond(bond, ringSize, aromatic, bondLength);
 
 		// new ring in empty space
 		atom = addAtom(x,y);
 		double cornerAngle = Math.PI * (ringSize-2)/ringSize;
-		polygon(atom, ringSize, atom,aromatic, 0, Math.PI - cornerAngle);
+		polygon(atom, ringSize, atom,aromatic, 0, Math.PI - cornerAngle, bondLength);
 		mValidHelperArrays = cHelperNone;
 		return true;
 		}
@@ -734,13 +880,13 @@ public class Molecule implements Serializable {
 	 * @param aromatic
 	 * @return
 	 */
-	public boolean addRingToAtom(int atom, int ringSize, boolean aromatic) {
+	public boolean addRingToAtom(int atom, int ringSize, boolean aromatic, double bondLength) {
 		if ((aromatic && getOccupiedValence(atom) > 1)
 		 || (!aromatic && getOccupiedValence(atom) > 2))
 			return false;
 
 		int angles = 0;
-		double angle[] = new double[4];
+		double[] angle = new double[4];
 		for (int i=0; i<mAllBonds; i++) {
 			for (int j=0; j<2; j++) {
 				if (mBondAtom[j][i] == atom) {
@@ -762,7 +908,7 @@ public class Molecule implements Serializable {
 				: (angle[0] + angle[1])/2 + Math.PI;
 
 		double cornerAngle = (Math.PI * (ringSize-2))/ringSize;
-		polygon(atom, ringSize, atom, aromatic, newAngle-cornerAngle/2, Math.PI - cornerAngle);
+		polygon(atom, ringSize, atom, aromatic, newAngle-cornerAngle/2, Math.PI - cornerAngle, bondLength);
 		mValidHelperArrays = cHelperNone;
 //				checkAtomParity(atom);
 		return true;
@@ -776,16 +922,16 @@ public class Molecule implements Serializable {
 	 * @param aromatic
 	 * @return
 	 */
-	public boolean addRingToBond(int bond, int ringSize, boolean aromatic) {
-		int bondAtom[] = new int[2];
-		double bondAngle[] = new double[2];
+	public boolean addRingToBond(int bond, int ringSize, boolean aromatic, double bondLength) {
+		int[] bondAtom = new int[2];
+		double[] bondAngle = new double[2];
 
 		bondAtom[0] = mBondAtom[0][bond];
 		bondAtom[1] = mBondAtom[1][bond];
 		if (getOccupiedValence(bondAtom[0]) > 3) return false;
 		if (getOccupiedValence(bondAtom[1]) > 3) return false;
 		int angles = 0;
-		double angle[] = new double[4];
+		double[] angle = new double[4];
 		for (int i=0; i<mAllBonds; i++) {
 			if (i == bond) continue;
 			for (int j=0; j<2; j++) {
@@ -827,7 +973,7 @@ public class Molecule implements Serializable {
 		double cornerAngle = (Math.PI * (ringSize-2))/ringSize;
 		polygon(bondAtom[atomNo], ringSize-1,
 				bondAtom[1-atomNo], aromatic,
-				bondAngle[(side > 0) ? 0 : 1] + Math.PI - cornerAngle, Math.PI - cornerAngle);
+				bondAngle[(side > 0) ? 0 : 1] + Math.PI - cornerAngle, Math.PI - cornerAngle, bondLength);
 
 		mValidHelperArrays = cHelperNone;
 //		checkAtomParity(bondAtom[0]);
@@ -891,7 +1037,7 @@ public class Molecule implements Serializable {
 	 */
 	public boolean changeAtomCharge(double x, double y, boolean positive) {
 		int atom = findAtom(x,y);
-		return (atom == -1) ? false : changeAtomCharge(atom, positive);
+		return atom != -1 && changeAtomCharge(atom, positive);
 		}
 
 
@@ -1011,45 +1157,117 @@ public class Molecule implements Serializable {
 	 * Copies all atoms and bonds of mol to the end of this Molecule's atom and bond
 	 * tables. If mol is a fragment then this Molecule's fragment flag is set to true
 	 * and all query features of mol are also copied.
-	 * High level function for constructing a molecule.
+	 * High level function for constructing a molecule. Does not require any helper arrays.
 	 * @param mol
 	 * @return atom mapping from original mol to this molecule after incorporation of mol
 	 */
 	public int[] addMolecule(Molecule mol) {
+		return addMolecule(mol, mol.mAllAtoms, mol.mAllBonds);
+		}
+
+
+	/**
+	 * Copies first atoms and first bonds of mol to the end of this Molecule's atom and bond
+	 * tables. If mol is a fragment then this Molecule's fragment flag is set to true
+	 * and all query features of mol are also copied. Typically, this is used to add a
+	 * molecule without explicit hydrogen atoms. If parities of copied molecules are valid,
+	 * then you may call setParitiesValid() on this molecule after adding molecules.
+	 * High level function for constructing a molecule. Does not require any helper arrays.
+	 * @param mol
+	 * @param atoms count of atoms to be copied
+	 * @param bonds count of bonds to be copied
+	 * @return atom mapping from original mol to this molecule after incorporation of mol
+	 */
+	public int[] addMolecule(Molecule mol, int atoms, int bonds) {
+		return addMolecule(mol, 0, atoms, 0, bonds);
+		}
+
+
+	/**
+	 * Copies first atoms and first bonds of mol to the end of this Molecule's atom and bond
+	 * tables. If mol is a fragment then this Molecule's fragment flag is set to true
+	 * and all query features of mol are also copied. Typically, this is used to add a
+	 * molecule without explicit hydrogen atoms. If parities of copied molecules are valid,
+	 * then you may call setParitiesValid() on this molecule after adding molecules.
+	 * High level function for constructing a molecule. Does not require any helper arrays.
+	 * @param mol
+	 * @param atom1 first atom to be copied
+	 * @param atom2 1+last atom to be copied
+	 * @param bond1 first bond to be copied
+	 * @param bond2 one+last bond to be copied
+	 * @return atom mapping from original mol to this molecule after incorporation of mol
+	 */
+	public int[] addMolecule(Molecule mol, int atom1, int atom2, int bond1, int bond2) {
 		mIsFragment |= mol.mIsFragment;
 
 		int[] atomMap = new int[mol.mAllAtoms];
 		int esrGroupCountAND = renumberESRGroups(cESRTypeAnd);
 		int esrGroupCountOR = renumberESRGroups(cESRTypeOr);
-		for (int atom=0; atom<mol.mAllAtoms; atom++) {
+		for (int atom=atom1; atom<atom2; atom++) {
 			atomMap[atom] = mol.copyAtom(this, atom, esrGroupCountAND, esrGroupCountOR);
-			}
-		for (int bond=0; bond<mol.mAllBonds; bond++) {
+		}
+		for (int bond=bond1; bond<bond2; bond++) {
 			mol.copyBond(this, bond, esrGroupCountAND, esrGroupCountOR, atomMap, false);
-			}
+		}
 
 		mIsRacemate = (mIsRacemate && mol.mIsRacemate);
 		mChirality = cChiralityUnknown;
 		mValidHelperArrays = cHelperNone;
 		return atomMap;
-		}
+	}
 
 
 	/**
-	 * High level function for constructing a molecule.
+	 * Adds and connects the substituent molecule to the rootAtom of this molecule.
+	 * Substituent atom(s) with atomicNo=0 and not carrying an atom label are not copied
+	 * because these are considered to represent the rootAtom.
+	 * Bonds leading to them, however, are copied and connected to the rootAtom.
+	 * If substituent atom parities are valid, then these are corrected for stereo centers
+	 * adjacent to attachment point, if their neighbor order changes due to the new bond to the rootAtom.
+	 * High level function for constructing a molecule. Does not require any helper arrays.
 	 * @param substituent
-	 * @param connectionAtom
+	 * @param rootAtom
 	 * @return atom mapping from substituent to this molecule after addition of substituent
 	 */
-	public int[] addSubstituent(Molecule substituent, int connectionAtom) {
+	public int[] addSubstituent(Molecule substituent, int rootAtom) {
 		int[] atomMap = new int[substituent.mAllAtoms];
 		int esrGroupCountAND = renumberESRGroups(cESRTypeAnd);
 		int esrGroupCountOR = renumberESRGroups(cESRTypeOr);
 		for (int atom=0; atom<substituent.mAllAtoms; atom++) {
-			if (substituent.getAtomicNo(atom) != 0)
+			if (substituent.getAtomicNo(atom) != 0 || substituent.getAtomCustomLabel(atom) != null) {
 				atomMap[atom] = substituent.copyAtom(this, atom, esrGroupCountAND, esrGroupCountOR);
-			else
-				atomMap[atom] = connectionAtom;
+				}
+			else {
+				atomMap[atom] = rootAtom;
+
+				// adapt parities for stereo centers adjacent to attachment point if order of neighbours changes
+				if ((substituent.mValidHelperArrays & cHelperBitParities) != 0) {
+					for (int bond=0; bond<substituent.mAllBonds; bond++) {
+						for (int i=0; i<2; i++) {
+							if (substituent.getBondAtom(i, bond) == atom) {
+								int neighbor = substituent.getBondAtom(1-i, bond);
+								int parity = substituent.getAtomParity(neighbor);
+								boolean invert = false;
+								if (parity == cAtomParity1 || parity == cAtomParity2) {
+									for (int b=0; b<substituent.mAllBonds; b++) {
+										if (b != bond) {
+											for (int j=0; j<2; j++) {
+												if (substituent.getBondAtom(j, b) == neighbor
+												 && substituent.getBondAtom(1-j, b) < atom) {
+													invert = !invert;
+													}
+												}
+											}
+										}
+									}
+								if (invert)
+									substituent.setAtomParity(neighbor, parity == cAtomParity1 ?
+											cAtomParity2 : cAtomParity1, substituent.isAtomParityPseudo(neighbor));
+								}
+							}
+						}
+					}
+				}
 			}
 		for (int bond=0; bond<substituent.mAllBonds; bond++) {
 			substituent.copyBond(this, bond, esrGroupCountAND, esrGroupCountOR, atomMap, false);
@@ -1061,6 +1279,69 @@ public class Molecule implements Serializable {
 		return atomMap;
 		}
 
+	/**
+	 * Scales the given substituent to match this molecule's average bond length.
+	 * Then, rotates the substituent such that the angle of the bond from the attachment point
+	 * to the first real atom matches the given angle. If angle is NaN, then no rotation is done.
+	 * Then, translates the substituent such that the attachment point overlaps with rootAtom.
+	 * Finally, copies the substituent without the attachment point into this molecule and
+	 * adds a new bond from rootAtom to the first substituent atom using the given bond type.
+	 * If bondType is -1, then all bond(s) connecting the attachment point with other substituent
+	 * atoms are copied to attach rootAtom with substituent atom(s). Otherwise, rootAtom
+	 * will be connected to the substituent's first atom using the specified bond tyoe and making
+	 * sure that the pointed tip of the stereo bond is at the rootAtom. Here it is assumed
+	 * that the attachmentPoint atom connects to exactly one other substituent atom.
+	 * If substituent atom parities are valid, then these are corrected for stereo centers
+	 * adjacent to attachment point, if their neighbor order changes due to the new bond to the rootAtom.
+	 * High level function for constructing a molecule. Does not require any helper arrays.
+	 * @param substituent
+	 * @param rootAtom in this Molecule
+	 * @param angle NaN or desired exit vector angle from rootAtom to first substituent atom
+	 * @param bondType -1 or up/down bond type to connect substituent with pointed tip at rootAtom
+	 */
+	public void addSubstituent(StereoMolecule substituent, int rootAtom, double angle, int bondType) {
+		double avbl = getAverageBondLength();
+		double substituentAVBL = substituent.getAverageBondLength(avbl);
+		if (substituentAVBL != avbl)
+			substituent.scaleCoords(avbl / substituentAVBL);
+
+		int attachmentPoint = -1;
+		int firstAtom = -1;
+		for (int bond=0; bond<substituent.getAllBonds() && attachmentPoint==-1; bond++) {
+			for (int i=0; i<2; i++) {
+				int atom = substituent.getBondAtom(i, bond);
+				if (substituent.getAtomicNo(atom) == 0 && substituent.getAtomCustomLabel(atom) == null) {
+					attachmentPoint = atom;
+					firstAtom = substituent.getBondAtom(1 - i, bond);
+					break;
+					}
+				}
+			}
+
+		if (!Double.isNaN(angle)) {
+			double rotation = Molecule.getAngleDif(substituent.getBondAngle(attachmentPoint, firstAtom), angle);
+			substituent.rotateCoords(substituent.getAtomX(firstAtom), substituent.getAtomY(firstAtom), rotation);
+			}
+
+		substituent.translateCoords(getAtomX(rootAtom) - substituent.getAtomX(attachmentPoint),
+									getAtomY(rootAtom) - substituent.getAtomY(attachmentPoint));
+
+		addSubstituent(substituent, rootAtom);
+
+		if (bondType != -1 && (bondType & Molecule.cBondTypeMaskStereo) != 0) {
+			for (int bond=mAllBonds-substituent.getAllBonds(); bond<mAllBonds; bond++) {
+				if (mBondAtom[0][bond] == rootAtom
+				 || mBondAtom[1][bond] == rootAtom) {
+					mBondType[bond] = bondType;
+					if (mBondAtom[1][bond] == rootAtom) {
+						mBondAtom[1][bond] = mBondAtom[0][bond];
+						mBondAtom[0][bond] = rootAtom;
+						break;
+						}
+					}
+				}
+			}
+		}
 
 	/**
 	 * Copies this molecule including parity settings, if valid.
@@ -1131,9 +1412,7 @@ public class Molecule implements Serializable {
 			if (destMol.mAtomList == null)
 				destMol.mAtomList = new int[destMol.mAtomicNo.length][];
 
-			destMol.mAtomList[destAtom] = new int[mAtomList[sourceAtom].length];
-			for (int i=0; i<mAtomList[sourceAtom].length; i++)
-				destMol.mAtomList[destAtom][i] = mAtomList[sourceAtom][i];
+			destMol.mAtomList[destAtom] = Arrays.copyOf(mAtomList[sourceAtom], mAtomList[sourceAtom].length);
 			}
 
 		if (destMol.mAtomCustomLabel != null)
@@ -1142,9 +1421,7 @@ public class Molecule implements Serializable {
 			if (destMol.mAtomCustomLabel == null)
 				destMol.mAtomCustomLabel = new byte[destMol.mAtomicNo.length][];
 
-			destMol.mAtomCustomLabel[destAtom] = new byte[mAtomCustomLabel[sourceAtom].length];
-			for (int i=0; i<mAtomCustomLabel[sourceAtom].length; i++)
-				destMol.mAtomCustomLabel[destAtom][i] = mAtomCustomLabel[sourceAtom][i];
+			destMol.mAtomCustomLabel[destAtom] = Arrays.copyOf(mAtomCustomLabel[sourceAtom], mAtomCustomLabel[sourceAtom].length);
 			}
 
 		if (esrGroup != -1) {
@@ -1212,8 +1489,7 @@ public class Molecule implements Serializable {
 		destMol.mBondAtom[0][destBond] = destAtom1;
 		destMol.mBondAtom[1][destBond] = destAtom2;
 
-		int bondType = (useBondTypeDelocalized
-					 && (mBondFlags[sourceBond] & cBondFlagDelocalized) != 0) ?
+		int bondType = (useBondTypeDelocalized && isDelocalizedBond(sourceBond)) ?
 									cBondTypeDelocalized : mBondType[sourceBond];
 		destMol.mBondType[destBond] = bondType;
 		destMol.mBondFlags[destBond] = mBondFlags[sourceBond];
@@ -1243,7 +1519,7 @@ public class Molecule implements Serializable {
 		destMol.mIsRacemate = mIsRacemate;
 		destMol.mProtectHydrogen = mProtectHydrogen;
 		destMol.mChirality = mChirality;
-		destMol.mName = (mName == null) ? null : new String(mName);
+		destMol.mName = mName;
 		destMol.mValidHelperArrays = (mValidHelperArrays & (cHelperBitParities | cHelperBitCIP));
 		}
 
@@ -1312,11 +1588,11 @@ public class Molecule implements Serializable {
 
 	/**
 	 * Swaps two atoms' indexes/locations in the atom table. This is used to move hydrogen atoms
-	 * to the end of the table and for some testsing purposes.
+	 * to the end of the table and for some testing purposes.
 	 * @param atom1
 	 * @param atom2
 	 */
-	protected void swapAtoms(int atom1, int atom2) {
+	public void swapAtoms(int atom1, int atom2) {
 		int tempInt = mAtomicNo[atom1];
 		mAtomicNo[atom1] = mAtomicNo[atom2];
 		mAtomicNo[atom2] = tempInt;
@@ -1329,9 +1605,9 @@ public class Molecule implements Serializable {
 		tempInt = mAtomFlags[atom1];
 		mAtomFlags[atom1] = mAtomFlags[atom2];
 		mAtomFlags[atom2] = tempInt;
-		tempInt = mAtomQueryFeatures[atom1];
+		long tempLong = mAtomQueryFeatures[atom1];
 		mAtomQueryFeatures[atom1] = mAtomQueryFeatures[atom2];
-		mAtomQueryFeatures[atom2] = tempInt;
+		mAtomQueryFeatures[atom2] = tempLong;
 		tempInt = mAtomMapNo[atom1];
 		mAtomMapNo[atom1] = mAtomMapNo[atom2];
 		mAtomMapNo[atom2] = tempInt;
@@ -1364,11 +1640,11 @@ public class Molecule implements Serializable {
 
 	/**
 	 * Swaps two bonds' indexes/locations in the atom table. This is used to move hydrogen atoms
-	 * to the end of the table and for some testsing purposes.
+	 * to the end of the table and for some testing purposes.
 	 * @param bond1
 	 * @param bond2
 	 */
-	protected void swapBonds(int bond1, int bond2) {
+	public void swapBonds(int bond1, int bond2) {
 		int temp = mBondAtom[0][bond1];
 		mBondAtom[0][bond1] = mBondAtom[0][bond2];
 		mBondAtom[0][bond2] = temp;
@@ -1399,24 +1675,11 @@ public class Molecule implements Serializable {
 	 * @param atom
 	 */
 	public void deleteAtom(int atom) {
-		for (int bnd=0; bnd<mAllBonds; bnd++) {
-			for (int i=0; i<2; i++) {
-				if (mBondAtom[i][bnd] == atom) {
+		for (int bnd=0; bnd<mAllBonds; bnd++)
+			for (int i=0; i<2; i++)
+				if (mBondAtom[i][bnd] == atom)
 					mBondType[bnd] = cBondTypeDeleted;	// mark for delete
-					int bonds = 0;
-					for (int j=0; j<mAllBonds; j++) {
-						if (j == bnd) continue;
-						if ((mBondAtom[0][j] == mBondAtom[1-i][bnd])
-						 || (mBondAtom[1][j] == mBondAtom[1-i][bnd]))
-							bonds++;
-						}
-					if (bonds == 0) {
-						removeMappingNo(mAtomMapNo[mBondAtom[1-i][bnd]]);
-						mAtomicNo[mBondAtom[1-i][bnd]] = -1;
-						}			// mark for delete
-					}
-				}
-			}
+
 		removeMappingNo(mAtomMapNo[atom]);
 		mAtomicNo[atom] = -1;		// mark for delete
 		if (mAtomList != null)
@@ -1461,7 +1724,9 @@ public class Molecule implements Serializable {
 
 	/**
 	 * High level function for constructing a molecule.
-	 * After the deletion the original order of atom and bond indexes is retained.
+	 * After the deletion the original order of atom and bond indexes is retained. Hence, the number of bond indexes
+	 * is reduced by one. Successively removing bonds needs to start with the highest bond index first,
+	 * e.g. the bonds 5, 6, and 11 must be deleted in the order 11, 6, and 5.
 	 * @param bond
 	 */
 	public void deleteBond(int bond) {
@@ -1528,8 +1793,8 @@ public class Molecule implements Serializable {
 		if (atomList.length == 0)
 			return null;
 
-		for (int i=0; i<atomList.length; i++)
-			markAtomForDeletion(atomList[i]);
+		for (int atom:atomList)
+			markAtomForDeletion(atom);
 
 		return deleteMarkedAtomsAndBonds();
 		}
@@ -1584,7 +1849,7 @@ public class Molecule implements Serializable {
 				}
 			}
 
-		return found ? deleteMarkedAtomsAndBonds() != null : false;
+		return found && deleteMarkedAtomsAndBonds() != null;
 		}
 
 
@@ -1669,10 +1934,19 @@ public class Molecule implements Serializable {
 
 
 	/**
+	 *  Use clear() instead of this method
+	 */
+	@Deprecated
+	public void deleteMolecule() {
+		clear();
+		}
+
+
+	/**
 	 * Empties the molecule to serve as container for constructing a new molecule,
 	 * e.g. by multiply calling addAtom(...), addBond(...) and other high level methods.
 	 */
-	public void deleteMolecule() {
+	public void clear() {
 		mAllAtoms = 0;
 		mAllBonds = 0;
 		mIsFragment = false;
@@ -1837,6 +2111,21 @@ public class Molecule implements Serializable {
 		return mAtomFlags[atom] & cAtomFlagsColor;
 		}
 
+	/**
+	 * @return the entire atom coordinate array
+	 */
+	public Coordinates getAtomCoordinates(int atom) {
+		return mCoordinates[atom];
+		}
+
+
+	/**
+	 * @return the entire atom coordinate array
+	 */
+	public Coordinates[] getAtomCoordinates() {
+		return mCoordinates;
+	}
+
 
 	/**
 	 * This is MDL's enhanced stereo representation (ESR).
@@ -1887,7 +2176,7 @@ public class Molecule implements Serializable {
 	public String getAtomCustomLabel(int atom) {
 		return (mAtomCustomLabel == null) ? null
 			 : (mAtomCustomLabel[atom] == null) ? null
-			 : new String(mAtomCustomLabel[atom]);
+			 : new String(mAtomCustomLabel[atom], StandardCharsets.UTF_8);
 		}
 
 
@@ -1942,7 +2231,7 @@ public class Molecule implements Serializable {
 
 	/**
 	 * Returns an atom mapping number within the context of a reaction.
-	 * Atoms that that share the same mapping number on the reactant and product side
+	 * Atoms that share the same mapping number on the reactant and product side
 	 * are considered to be the same atom.
 	 * @param atom
 	 * @return
@@ -1987,7 +2276,7 @@ public class Molecule implements Serializable {
 	 * @param atom
 	 * @return
 	 */
-	public int getAtomQueryFeatures(int atom) {
+	public long getAtomQueryFeatures(int atom) {
 		return mAtomQueryFeatures[atom];
 		}
 
@@ -2007,6 +2296,28 @@ public class Molecule implements Serializable {
 	}
 
 
+	public Coordinates getCenterOfGravity() {
+		if (mAllAtoms == 0)
+			return null;
+
+		Coordinates c = new Coordinates();
+		for (int atom = 0; atom<mAllAtoms; atom++)
+			c.add(mCoordinates[atom]);
+		return c.scale(1.0 / mAllAtoms);
+		}
+
+
+	public Coordinates getCenterOfGravity(int[] atomIndex) {
+		if (atomIndex == null || atomIndex.length==0 || atomIndex.length>mAllAtoms)
+			return null;
+
+		Coordinates c = new Coordinates();
+		for (int atom:atomIndex)
+			c.add(mCoordinates[atom]);
+		return c.scale(1.0 / atomIndex.length);
+		}
+
+
 	public double getAtomX(int atom) {
 		return mCoordinates[atom].x;
 		}
@@ -2021,7 +2332,24 @@ public class Molecule implements Serializable {
 		return mCoordinates[atom].z;
 		}
 
-	public Rectangle2D.Double getBounds(Rectangle2D.Double r) {
+//	@Deprecated
+//	public Rectangle2D.Double getBounds(Rectangle2D.Double r) {
+//		if (mAllAtoms == 0)
+//			return null;
+//
+//		GenericRectangle b = getBounds((GenericRectangle)null);
+//		if (r != null) {
+//			r.x = b.x;
+//			r.y = b.y;
+//			r.width = b.width;
+//			r.height = b.height;
+//			return r;
+//			}
+//
+//		return new Rectangle2D.Double(b.x, b.y, b.width, b.height):
+//		}
+
+	public GenericRectangle getBounds(GenericRectangle r) {
 		if (mAllAtoms == 0)
 			return null;
 
@@ -2042,7 +2370,7 @@ public class Molecule implements Serializable {
 			}
 
 		if (r == null) {
-			r = new Rectangle2D.Double(x1, y1, x2 - x1, y2 - y1);
+			r = new GenericRectangle(x1, y1, x2 - x1, y2 - y1);
 			}
 		else {
 			r.x = x1;
@@ -2073,11 +2401,22 @@ public class Molecule implements Serializable {
 	/**
 	 * Calculates and returns the mean bond length. If the molecule has
 	 * no bonds, then the smallest distance between unconnected atoms is
-	 * returned. If is has less than 2 atoms, cDefaultAverageBondLength is returned.
+	 * returned. If it has less than 2 atoms, cDefaultAverageBondLength is returned.
 	 * @return
 	 */
 	public double getAverageBondLength() {
 		return getAverageBondLength(mAllAtoms, mAllBonds, sDefaultAVBL);
+		}
+
+
+	/**
+	 * Calculates and returns the mean bond length. If the molecule has
+	 * no bonds, then the smallest distance between unconnected atoms is
+	 * returned. If it has less than 2 atoms, the given defaultBondLength is returned.
+	 * @return
+	 */
+	public double getAverageBondLength(double defaultBondLength) {
+		return getAverageBondLength(mAllAtoms, mAllBonds, defaultBondLength);
 		}
 
 
@@ -2101,9 +2440,25 @@ public class Molecule implements Serializable {
 	 * If we have less than 2 atoms, defaultBondLength is returned.
 	 * @param atoms atom indexes >= this are not considered
 	 * @param bonds bond indexes >= this are not considered
+	 * @param defaultBondLength
 	 * @return
 	 */
 	public double getAverageBondLength(int atoms, int bonds, double defaultBondLength) {
+		return getAverageBondLength(atoms, bonds, defaultBondLength, mCoordinates);
+	}
+
+	/**
+	 * Calculates and returns the mean bond length of all bonds 0...bonds.
+	 * If there are no bonds, then the smallest distance between unconnected atoms is
+	 * determined and a reasonable potential bond length derived from that is returned.
+	 * If we have less than 2 atoms, defaultBondLength is returned.
+	 * @param atoms atom indexes >= these are not considered
+	 * @param bonds bond indexes >= these are not considered
+	 * @param defaultBondLength
+	 * @param coords to be used, either the molecule's coordinates, or an alternative, e.g. from a Conformer
+	 * @return
+	 */
+	public double getAverageBondLength(int atoms, int bonds, double defaultBondLength, Coordinates[] coords) {
 		boolean considerMetalBonds = false;
 
 		int consideredBonds = 0;
@@ -2132,7 +2487,7 @@ public class Molecule implements Serializable {
 			double lowDistance = Double.MAX_VALUE;
 			for (int atom1=1; atom1<atoms; atom1++) {
 				for (int atom2=0; atom2<atom1; atom2++) {
-					double distance = mCoordinates[atom1].distance(mCoordinates[atom2]);
+					double distance = coords[atom1].distance(coords[atom2]);
 					if (distance > 0 && distance < lowDistance)
 						lowDistance = distance;
 					}
@@ -2144,8 +2499,9 @@ public class Molecule implements Serializable {
 		for (int bond=0; bond<bonds; bond++) {
 			if ((considerMetalBonds || mBondType[bond] != cBondTypeMetalLigand)
 			 && (mBondQueryFeatures[bond] & cBondQFBridge) == 0)
-				avblSum += mCoordinates[mBondAtom[1][bond]].distance(mCoordinates[mBondAtom[0][bond]]);
+				avblSum += coords[mBondAtom[1][bond]].distance(coords[mBondAtom[0][bond]]);
 			}
+
 		return avblSum / consideredBonds;
 		}
 
@@ -2274,18 +2630,37 @@ public class Molecule implements Serializable {
 
 
 	/**
-	 * Delocalized bonds, i.e. bonds in an aromatic 6-membered ring, are returned as 1.
-	 * Ligand field bonds are returned as 0.
+	 * Returns the formal bond order. Delocalized rings have alternating single and double
+	 * bonds, which are returned as such. Bonds that are explicitly marked as being delocalized
+	 * are returned as 1. Dative bonds are returned as 0.
+	 * In fragments with at least one bond type set as bond query feature, the smallest
+	 * non-zero order of allowed bonds is returned.
 	 * @param bond
-	 * @return for organic molecules 1,2, or 3
+	 * @return formal bond order 0 (dative bonds), 1, 2, 3, 4, or 5
 	 */
 	public int getBondOrder(int bond) {
+		if (mIsFragment && (mBondQueryFeatures[bond] & cBondQFBondTypes) != 0) {
+			if ((mBondQueryFeatures[bond] & (cBondQFSingle | cBondQFDelocalized)) != 0)
+				return 1;
+			if ((mBondQueryFeatures[bond] & cBondQFDouble) != 0)
+				return 2;
+			if ((mBondQueryFeatures[bond] & cBondQFTriple) != 0)
+				return 3;
+			if ((mBondQueryFeatures[bond] & cBondQFQuadruple) != 0)
+				return 4;
+			if ((mBondQueryFeatures[bond] & cBondQFQuintuple) != 0)
+				return 5;
+			if ((mBondQueryFeatures[bond] & cBondQFMetalLigand) != 0)
+				return 0;
+			}
 		switch (mBondType[bond] & cBondTypeMaskSimple) {
 		case cBondTypeSingle:
 		case cBondTypeDelocalized: return 1;
 		case cBondTypeDouble: return 2;
 		case cBondTypeTriple: return 3;
-		default: return 0;	// metal bond
+		case cBondTypeQuadruple: return 4;
+		case cBondTypeQuintuple: return 5;
+		default: return 0;	// dative bonds, ligand field bonds
 			}
 		}
 
@@ -2337,13 +2712,13 @@ public class Molecule implements Serializable {
 	/**
 	 * This is the bond type without stereo information.
 	 * @param bond
-	 * @return cBondTypeSingle,cBondTypeDouble,cBondTypeTriple,cBondTypeDelocalized
+	 * @return cBondTypeSingle,cBondTypeDouble,cBondTypeTriple,(cBondTypeDelocalized if used)
 	 */
 	public int getBondTypeSimple(int bond) {
 		return mBondType[bond] & cBondTypeMaskSimple;
 		}
 
-	
+
 	/**
 	 * Gets the overall chirality of the molecule, which is a calculated information considering:
 	 * Recognition of stereo centers and stereo bonds, defined ESR features, meso detection.
@@ -2370,26 +2745,56 @@ public class Molecule implements Serializable {
 
 	/**
 	 * Used instead of the 1.6 Features. Cartridge needs 1.5
-	 * @param a
-	 * @param newSize
+	 * @param original
+	 * @param newLength
      * @return
      */
-/*
+	private static Coordinates[] copyOf(Coordinates[] original, int newLength) {
+		Coordinates[] copy = new Coordinates[newLength];
+		for (int i=0; i<original.length; i++)
+			if (original[i] != null)
+				copy[i] = new Coordinates(original[i]);
+		return copy;
+	}
 	private static int[] copyOf(int[] original, int newLength) {
-     int[] copy = new int[newLength];
-     System.arraycopy(original, 0, copy, 0,
-                      Math.min(original.length, newLength));
-     return copy;
- }
-*/
+		int[] copy = new int[newLength];
+		System.arraycopy(original, 0, copy, 0, Math.min(original.length, newLength));
+		return copy;
+    }
+	private static long[] copyOf(long[] original, int newLength) {
+		long[] copy = new long[newLength];
+		System.arraycopy(original, 0, copy, 0, Math.min(original.length, newLength));
+		return copy;
+	}
+	private static int[][] copyOf(int[][] original, int newLength) {
+		int[][] copy = new int[newLength][];
+		for (int i=0; i<original.length; i++) {
+			if (original[i] != null) {
+				copy[i] = new int[original[i].length];
+				System.arraycopy(original[i], 0, copy[i], 0, original[i].length);
+			}
+		}
+		return copy;
+	}
+	private static byte[][] copyOf(byte[][] original, int newLength) {
+		byte[][] copy = new byte[newLength][];
+		for (int i=0; i<original.length; i++) {
+			if (original[i] != null) {
+				copy[i] = new byte[original[i].length];
+				System.arraycopy(original[i], 0, copy[i], 0, original[i].length);
+			}
+		}
+		return copy;
+	}
 
+// changed back to old behaviour above, because Array is not compatible with openchemlib-js
 	/**
 	 * Used instead of the 1.6 Features. Cartridge needs 1.5
 	 * @param a
 	 * @param newSize
      * @return
-     */
-	/*protected final static Object copyOf(Object a, int newSize) {
+     *
+	protected static Object copyOf(Object a, int newSize) {
 		Class cl = a.getClass();
 		if (!cl.isArray()) return null;
 		int size = Array.getLength(a);
@@ -2397,27 +2802,27 @@ public class Molecule implements Serializable {
 		Object newArray = Array.newInstance(componentType, newSize);
 		System.arraycopy(a, 0, newArray, 0, Math.min(size, newSize));
 		return newArray;
-	}*/
+	}   */
 
 	/**
 	 * Usually called automatically and hardly needed to be called.
 	 * @param v
 	 */
 	public void setMaxAtoms(int v) {
-		mAtomicNo = Arrays.copyOf(mAtomicNo, v);		// CXR: Do not used Arrays.copyOf: It's a 1.6 Feature!!
-		mAtomCharge = Arrays.copyOf(mAtomCharge, v);
-		mAtomMapNo = Arrays.copyOf(mAtomMapNo, v);
+		mAtomicNo = copyOf(mAtomicNo, v);		// CXR: Do not used Arrays.copyOf: It's a 1.6 Feature!!
+		mAtomCharge = copyOf(mAtomCharge, v);
+		mAtomMapNo = copyOf(mAtomMapNo, v);
 		int orig = mCoordinates.length;
-		mCoordinates = Arrays.copyOf(mCoordinates, v);
+		mCoordinates = copyOf(mCoordinates, v);
 		for (int i=orig; i<v; i++)
 			mCoordinates[i] = new Coordinates();
-		mAtomMass = Arrays.copyOf(mAtomMass, v);
-		mAtomFlags = Arrays.copyOf(mAtomFlags, v);
-		mAtomQueryFeatures = Arrays.copyOf(mAtomQueryFeatures, v);
+		mAtomMass = copyOf(mAtomMass, v);
+		mAtomFlags = copyOf(mAtomFlags, v);
+		mAtomQueryFeatures = copyOf(mAtomQueryFeatures, v);
 		if (mAtomList != null)
-			mAtomList = Arrays.copyOf(mAtomList, v);
+			mAtomList = copyOf(mAtomList, v);
 		if (mAtomCustomLabel != null)
-			mAtomCustomLabel = Arrays.copyOf(mAtomCustomLabel, v);
+			mAtomCustomLabel = copyOf(mAtomCustomLabel, v);
 		mMaxAtoms = v;
 		}
 
@@ -2436,11 +2841,11 @@ public class Molecule implements Serializable {
 	 * @param v
 	 */
 	public void setMaxBonds(int v) {
-		mBondAtom[0] = Arrays.copyOf(mBondAtom[0], v);
-		mBondAtom[1] = Arrays.copyOf(mBondAtom[1], v);
-		mBondType = Arrays.copyOf(mBondType, v);
-		mBondFlags = Arrays.copyOf(mBondFlags, v);
-		mBondQueryFeatures = Arrays.copyOf(mBondQueryFeatures, v);
+		mBondAtom[0] = copyOf(mBondAtom[0], v);
+		mBondAtom[1] = copyOf(mBondAtom[1], v);
+		mBondType = copyOf(mBondType, v);
+		mBondFlags = copyOf(mBondFlags, v);
+		mBondQueryFeatures = copyOf(mBondQueryFeatures, v);
 		mMaxBonds = v;
 		}
 
@@ -2554,6 +2959,21 @@ public class Molecule implements Serializable {
 	 */
 	public boolean isFragment() {
 		return mIsFragment;
+		}
+
+
+	public boolean isDelocalizedBond(int bond) {
+		return mBondType[bond] == cBondTypeDelocalized;
+		}
+
+	/**
+	 * @return true if at least one z-coordinate is different from 0.0
+	 */
+	public boolean is3D() {
+		for (int atom=0; atom<mAllAtoms; atom++)
+			if (mCoordinates[atom].z != 0.0)
+				return true;
+		return false;
 		}
 
 
@@ -2832,7 +3252,7 @@ public class Molecule implements Serializable {
 
 	/**
 	 * Defines an atom mapping number within the context of a reaction.
-	 * Atoms that that share the same mapping number on the reactant and product side
+	 * Atoms that share the same mapping number on the reactant and product side
 	 * are considered to be the same atom.
 	 * @param atom
 	 * @param mapNo
@@ -2850,7 +3270,7 @@ public class Molecule implements Serializable {
 	 */
 	public void setAtomMass(int atom, int mass) {
 		mAtomMass[atom] = mass;
-		mValidHelperArrays &= cHelperRings;
+		mValidHelperArrays &= (mAtomicNo[atom] == 1) ? cHelperNone : cHelperRings;
 		}
 
 
@@ -2873,6 +3293,8 @@ public class Molecule implements Serializable {
 	 */
 	public void setAtomParity(int atom, int parity, boolean isPseudo) {
 		mAtomFlags[atom] &= ~(cAtomFlagsParity | cAtomParityIsPseudo);
+		if (parity != cAtomParityUnknown)
+			mAtomFlags[atom] &= ~cAtomFlagConfigurationUnknown;
 		mAtomFlags[atom] |= parity;
 		if (isPseudo)
 			mAtomFlags[atom] |= cAtomParityIsPseudo;
@@ -2909,13 +3331,13 @@ public class Molecule implements Serializable {
 	 * <p>An inverse logic needs to be applied to translate a user request to the bits needed. For example,
 	 * to only accept atoms that have 1 or 2 hydrogen neighbors, we need to filter out all others. Thus, we
 	 * would call<br>setAtomQueryFeature(atom, cAtomQFNot0Hydrogen | cAtomQFNot3Hydrogen, true);</p>
-	 * <p>To match only atoms without hydrogen neighbors, call<br>setAtomQueryFeature(atom, cAtomQFHydrogen & ~cAtomQFNot3Hydrogen, true);<br>
+	 * <p>To match only atoms without hydrogen neighbors, call<br>setAtomQueryFeature(atom, cAtomQFHydrogen & ~cAtomQFNot0Hydrogen, true);<br>
 	 * This mechanism allows a very efficient atom matching and therefore very fast sub-structure search.</p>
 	 * @param atom
 	 * @param feature one of cAtomQF...
 	 * @param value if true, the feature is set, otherwise it is removed
 	 */
-	public void setAtomQueryFeature(int atom, int feature, boolean value) {
+	public void setAtomQueryFeature(int atom, long feature, boolean value) {
 		if (value)
 			mAtomQueryFeatures[atom] |= feature;
 		else
@@ -3199,7 +3621,7 @@ public class Molecule implements Serializable {
 		else {
 			if (mAtomCustomLabel == null)
 				mAtomCustomLabel = new byte[mMaxAtoms][];
-			mAtomCustomLabel[atom] = label.getBytes();
+			mAtomCustomLabel[atom] = label.getBytes(StandardCharsets.UTF_8);
 			}
 		}
 
@@ -3422,6 +3844,18 @@ public class Molecule implements Serializable {
 		}
 
 
+	public void rotateCoords(double x, double y, double angle) {
+		double sin = Math.sin(angle);
+		double cos = Math.cos(angle);
+		for (int atom=0; atom<mAllAtoms; atom++) {
+			double ax = mCoordinates[atom].x - x;
+			double ay = mCoordinates[atom].y - y;
+			mCoordinates[atom].x = x + ax * cos - ay * sin;
+			mCoordinates[atom].y = y + ay * cos + ax * sin;
+		}
+	}
+
+
 	public void zoomAndRotateInit(double x, double y) {
 		mZoomRotationX = x;
 		mZoomRotationY = y;
@@ -3453,7 +3887,8 @@ public class Molecule implements Serializable {
 
 
 	private int getMaximumBondOrder(int bond) {
-		int maxBondOrder = 3;
+		int maxBondOrder = (isTransitionMetalAtom(mBondAtom[0][bond])
+						 || isTransitionMetalAtom(mBondAtom[1][bond])) ? 5 : 3;
 		for (int i=0; i<2; i++) {
 			int atom = mBondAtom[i][bond];
 			int max = getBondOrder(bond) + getMaxValence(atom) - getOccupiedValence(atom);
@@ -3469,8 +3904,20 @@ public class Molecule implements Serializable {
 		boolean hasMetal = isMetalAtom(mBondAtom[0][bond]) || isMetalAtom(mBondAtom[1][bond]);
 		int startBond = hasMetal ? cBondTypeMetalLigand : cBondTypeSingle;
 
-		if (mBondType[bond] == cBondTypeTriple) {
+		if (mBondType[bond] == cBondTypeQuintuple) {
 			mBondType[bond] = startBond;
+			mValidHelperArrays = cHelperNone;
+			return true;
+			}
+
+		if (mBondType[bond] == cBondTypeQuadruple) {
+			mBondType[bond] = (maxBondOrder > 4) ? cBondTypeQuintuple : startBond;
+			mValidHelperArrays = cHelperNone;
+			return true;
+			}
+
+		if (mBondType[bond] == cBondTypeTriple) {
+			mBondType[bond] = (maxBondOrder > 3) ? cBondTypeQuadruple : startBond;
 			mValidHelperArrays = cHelperNone;
 			return true;
 			}
@@ -3483,7 +3930,7 @@ public class Molecule implements Serializable {
 			}
 
 		if (mBondType[bond] == cBondTypeCross) {
-			if (maxBondOrder == 3)
+			if (maxBondOrder > 2)
 				mBondType[bond] = cBondTypeTriple;
 			else
 				mBondType[bond] = startBond;
@@ -3531,6 +3978,10 @@ public class Molecule implements Serializable {
 			return maxBondOrder >= 2;
 		case cBondTypeTriple:
 			return maxBondOrder >= 3;
+		case cBondTypeQuadruple:
+			return maxBondOrder >= 4;
+		case cBondTypeQuintuple:
+			return maxBondOrder >= 5;
 		case cBondTypeMetalLigand:
 			return true;
 		default:
@@ -3616,7 +4067,11 @@ public class Molecule implements Serializable {
 	 * @return
 	 */
 	public int getElectronValenceCorrection(int atom, int occupiedValence) {
-		if (mAtomicNo[atom] >= 171 && mAtomicNo[atom] <= 190)
+		return getElectronValenceCorrection(atom, occupiedValence, mAtomicNo[atom]);
+		}
+
+	protected int getElectronValenceCorrection(int atom, int occupiedValence, int atomicNo) {
+		if (atomicNo >= 171 && atomicNo <= 190)
 			return 0;
 
 		int correction = 0;
@@ -3634,32 +4089,32 @@ public class Molecule implements Serializable {
 			if ((mAtomQueryFeatures[atom] & cAtomQFCharge) == cAtomQFNotCharge0+cAtomQFNotChargeNeg)
 				charge = 1;
 			}
-		if (mAtomicNo[atom] == 7		// N
-		 || mAtomicNo[atom] == 8		// O
-		 || mAtomicNo[atom] == 9)		// F
+		if (atomicNo == 7		// N
+		 || atomicNo == 8		// O
+		 || atomicNo == 9)		// F
 			correction += charge;
-		else if (mAtomicNo[atom] == 6	// C
-			  || mAtomicNo[atom] == 14	// Si
-			  || mAtomicNo[atom] == 32)	// Ge
+		else if (atomicNo == 6	// C
+			  || atomicNo == 14	// Si
+			  || atomicNo == 32)	// Ge
 			correction -= Math.abs(charge);
-		else if (mAtomicNo[atom] == 15		// P
-			  || mAtomicNo[atom] == 33) {	// As
+		else if (atomicNo == 15		// P
+			  || atomicNo == 33) {	// As
 			if (occupiedValence - correction - charge <= 3)
 				correction += charge;
 			else
 				correction -= charge;
 			}
-		else if (mAtomicNo[atom] == 16		// S
-			  || mAtomicNo[atom] == 34		// Se
-			  || mAtomicNo[atom] == 52) {	// Te
+		else if (atomicNo == 16		// S
+			  || atomicNo == 34		// Se
+			  || atomicNo == 52) {	// Te
 			if (occupiedValence - correction - charge <= 4)
 				correction += charge;
 			else
 				correction -= Math.abs(charge);
 			}
-		else if (mAtomicNo[atom] == 17		// Cl
-			  || mAtomicNo[atom] == 35		// Br
-			  || mAtomicNo[atom] == 53) {   // I
+		else if (atomicNo == 17		// Cl
+			  || atomicNo == 35		// Br
+			  || atomicNo == 53) {   // I
 			if (occupiedValence - correction - charge <= 5)
 				correction += charge;
 			else
@@ -3684,6 +4139,7 @@ public class Molecule implements Serializable {
 		case 33: 	// As
 		case 34: 	// Se
 		case 35: 	// Br
+		case 52: 	// Te
 		case 53: 	// I
 			return true;
 			}
@@ -3695,6 +4151,16 @@ public class Molecule implements Serializable {
 	 * @return whether atom is an electronegative one
 	 */
 	public boolean isElectronegative(int atom) {
+		if (mIsFragment) {
+			if ((mAtomQueryFeatures[atom] & cAtomQFAny) != 0)
+				return false;
+
+			if (mAtomList != null && mAtomList[atom] != null)
+				for (int atomicNo:mAtomList[atom])
+					if (!isAtomicNoElectronegative(atomicNo))
+						return false;
+			}
+
 		return isAtomicNoElectronegative(mAtomicNo[atom]);
 		}
 
@@ -3726,22 +4192,75 @@ public class Molecule implements Serializable {
 	 * @return whether atom is an electropositive one
 	 */
 	public boolean isElectropositive(int atom) {
+		if (mIsFragment) {
+			if ((mAtomQueryFeatures[atom] & cAtomQFAny) != 0)
+				return false;
+
+			if (mAtomList != null && mAtomList[atom] != null)
+				for (int atomicNo:mAtomList[atom])
+					if (!isAtomicNoElectropositive(atomicNo))
+						return false;
+			}
+
 		return isAtomicNoElectropositive(mAtomicNo[atom]);
 		}
 
 
 	/**
 	 * @param atom
-	 * @return whether atom is any metal atom
+	 * @return whether atom is a metal atom
 	 */
 	public boolean isMetalAtom(int atom) {
-		int atomicNo = mAtomicNo[atom];
+		if (mIsFragment) {
+			if ((mAtomQueryFeatures[atom] & cAtomQFAny) != 0)
+				return false;
+
+			if (mAtomList != null && mAtomList[atom] != null)
+				for (int atomicNo:mAtomList[atom])
+					if (!isAtomicNoMetal(atomicNo))
+						return false;
+			}
+
+		return isAtomicNoMetal(mAtomicNo[atom]);
+		}
+
+
+	/**
+	 * @param atom
+	 * @return whether atom is a transition metal atom
+	 */
+	public boolean isTransitionMetalAtom(int atom) {
+		if (mIsFragment) {
+			if ((mAtomQueryFeatures[atom] & cAtomQFAny) != 0)
+				return false;
+
+			if (mAtomList != null && mAtomList[atom] != null)
+				for (int atomicNo:mAtomList[atom])
+					if (!isAtomicNoTransitionMetal(atomicNo))
+						return false;
+			}
+
+		return isAtomicNoTransitionMetal(mAtomicNo[atom]);
+		}
+
+
+	public static boolean isAtomicNoMetal(int atomicNo) {
 		return (atomicNo >=  3 && atomicNo <=  4)
 			|| (atomicNo >= 11 && atomicNo <= 13)
 			|| (atomicNo >= 19 && atomicNo <= 31)
 			|| (atomicNo >= 37 && atomicNo <= 51)
 			|| (atomicNo >= 55 && atomicNo <= 84)
-			|| (atomicNo >= 87 && atomicNo <= 103);
+			|| (atomicNo >= 87 && atomicNo <= 112);
+		}
+
+
+	public static boolean isAtomicNoTransitionMetal(int atomicNo) {
+		return (atomicNo >= 21 && atomicNo <= 30)
+			|| (atomicNo >= 39 && atomicNo <= 48)
+			|| atomicNo == 57
+			|| (atomicNo >= 72 && atomicNo <= 80)
+			|| atomicNo ==  89
+			|| (atomicNo >= 104 && atomicNo <= 112);
 		}
 
 
@@ -3750,7 +4269,21 @@ public class Molecule implements Serializable {
 	 * @return true if this atom is not a metal and not a nobel gas
 	 */
 	public boolean isOrganicAtom(int atom) {
-		int atomicNo = mAtomicNo[atom];
+		if (mIsFragment) {
+			if ((mAtomQueryFeatures[atom] & cAtomQFAny) != 0)
+				return false;
+
+			if (mAtomList != null && mAtomList[atom] != null)
+				for (int atomicNo:mAtomList[atom])
+					if (!isAtomicNoOrganic(atomicNo))
+						return false;
+			}
+
+		return isAtomicNoOrganic(mAtomicNo[atom]);
+		}
+
+
+	public static boolean isAtomicNoOrganic(int atomicNo) {
 		return atomicNo == 1
 			|| (atomicNo >=  5 && atomicNo <=  9)	// B,C,N,O,F
 			|| (atomicNo >= 14 && atomicNo <= 17)	// Si,P,S,Cl
@@ -3758,7 +4291,14 @@ public class Molecule implements Serializable {
 			|| (atomicNo >= 52 && atomicNo <= 53);	// Te,I
 		}
 
-	
+
+	public void removeAtomMapping(boolean keepManualMapping) {
+		for (int atom=0; atom<mAllAtoms; atom++)
+			if (!keepManualMapping || mAtomMapNo[atom] < 0)
+				mAtomMapNo[atom] = 0;
+		}
+
+
 	protected void removeMappingNo(int mapNo) {
 		for (int atom=0; atom<mAllAtoms; atom++)
 			if (Math.abs(mAtomMapNo[atom]) == Math.abs(mapNo))
@@ -3792,7 +4332,7 @@ public class Molecule implements Serializable {
 				}
 			}
 		
-		int newAtmNo[] = new int[mAllAtoms];
+		int[] newAtmNo = new int[mAllAtoms];
 		int atomDest = 0;
 		for (int atom=0; atom<mAllAtoms; atom++) {
 			if (mAtomicNo[atom] == -1) {
@@ -3833,16 +4373,12 @@ public class Molecule implements Serializable {
 		}
 
 
-	private void polygon(int atom, int bonds, int endAtm, boolean aromatic, double actlAngle, double angleChange) {
+	private void polygon(int atom, int bonds, int endAtm, boolean aromatic, double actlAngle, double angleChange, double bondLength) {
 		boolean dblBnd;
 		int actlAtm,remoteAtm,bnd;
-		double bondLength,xdiff,ydiff,newx,newy;
+		double xdiff,ydiff,newx,newy;
 
-		bondLength = 0.0f;
-		if (atom == endAtm) {
-			bondLength = getAverageBondLength();
-			}
-		else {
+		if (atom != endAtm) {
 			xdiff = mCoordinates[atom].x - mCoordinates[endAtm].x;
 			ydiff = mCoordinates[atom].y - mCoordinates[endAtm].y;
 			bondLength = Math.sqrt(xdiff * xdiff + ydiff * ydiff);
@@ -3916,7 +4452,7 @@ public class Molecule implements Serializable {
 			stream.writeInt(mAtomCharge[atom]);
 			stream.writeInt(mAtomMass[atom]);
 			stream.writeInt(mAtomFlags[atom] & ~cAtomFlagsHelper);
-			stream.writeInt(mAtomQueryFeatures[atom]);
+			
 			stream.writeDouble(mCoordinates[atom].x);	// for compatibility with earlier double based coords
 			stream.writeDouble(mCoordinates[atom].y);
 			stream.writeDouble(mCoordinates[atom].z);
@@ -3965,7 +4501,7 @@ public class Molecule implements Serializable {
 			mAtomCharge[atom] = stream.readInt();
 			mAtomMass[atom] = stream.readInt();
 			mAtomFlags[atom] = stream.readInt();
-			mAtomQueryFeatures[atom] = stream.readInt();
+			
 			mCoordinates[atom].set(stream.readDouble(), stream.readDouble(), stream.readDouble());
 			mAtomMapNo[atom] = stream.readInt();
 

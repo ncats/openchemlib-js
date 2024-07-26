@@ -1,35 +1,36 @@
 /*
-* Copyright (c) 1997 - 2016
-* Actelion Pharmaceuticals Ltd.
-* Gewerbestrasse 16
-* CH-4123 Allschwil, Switzerland
-*
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*
-* 1. Redistributions of source code must retain the above copyright notice, this
-*    list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
-*    names of its contributors may be used to endorse or promote products
-*    derived from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-*/
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
 
 package com.actelion.research.chem;
 
@@ -37,7 +38,7 @@ import java.util.ArrayList;
 
 public class RingCollection {
 	public static final int MAX_SMALL_RING_SIZE = 7;
-	private static final int MAX_SMALL_RING_COUNT = 256; // to prevent explosions with highly connected metal grids, etc.
+	public static final int MAX_SMALL_RING_COUNT = 1024; // to prevent explosions with highly connected metal grids, etc.
 
 	private static final int MODE_SMALL_RINGS = 1;
 	private static final int MODE_LARGE_RINGS = 2;
@@ -50,12 +51,18 @@ public class RingCollection {
 	public static final int MODE_SMALL_AND_LARGE_RINGS_AND_AROMATICITY = MODE_SMALL_RINGS
 																	   | MODE_LARGE_RINGS
 																	   | MODE_AROMATICITY;
+	public static final int MODE_INCLUDE_TAUTOMERIC_BONDS = 8;
+
+	private static final int FEATURES_RING_SIZE = 0x0000FFFF;
+	private static final int FEATURES_AROMATIC = 0x00010000;
+	private static final int FEATURES_DELOCALIZED = 0x00020000;
+	private static final int FEATURES_HETERO_AROMATIC = 0x00040000;
 
 	private ExtendedMolecule mMol;
 	private ArrayList<int[]> mRingAtomSet;
 	private ArrayList<int[]> mRingBondSet;
-	private int[] mAtomRingSize;
-	private int[] mBondRingSize;
+	private int[] mAtomRingFeatures;
+	private int[] mBondRingFeatures;
 	private int[] mHeteroPosition;
 	private boolean[] mIsAromatic;
 	private boolean[] mIsDelocalized;
@@ -87,11 +94,11 @@ public class RingCollection {
 	public RingCollection(ExtendedMolecule mol, int mode, int maxSmallRingSize) {
 		mMol = mol;
 		mMaxSmallRingSize = maxSmallRingSize;
-		mRingAtomSet = new ArrayList<int[]>();
-		mRingBondSet = new ArrayList<int[]>();
+		mRingAtomSet = new ArrayList<>();
+		mRingBondSet = new ArrayList<>();
 
-		mAtomRingSize = new int[mMol.getAtoms()];
-		mBondRingSize = new int[mMol.getBonds()];
+		mAtomRingFeatures = new int[mMol.getAtoms()];
+		mBondRingFeatures = new int[mMol.getBonds()];
 
 		mMol.ensureHelperArrays(ExtendedMolecule.cHelperNeighbours);
 
@@ -171,7 +178,8 @@ public class RingCollection {
 			mIsAromatic = new boolean[mRingAtomSet.size()];
 			mIsDelocalized = new boolean[mRingAtomSet.size()];
 			mHeteroPosition = new int[mRingAtomSet.size()];
-			determineAromaticity(mIsAromatic, mIsDelocalized, mHeteroPosition, false);
+			determineAromaticity(mIsAromatic, mIsDelocalized, mHeteroPosition, (mode & MODE_INCLUDE_TAUTOMERIC_BONDS) != 0);
+			updateAromaticity();
 			}
 
 		// find large rings by examining every potential ring bond
@@ -181,7 +189,7 @@ public class RingCollection {
 				if (!isConfirmedChainBond[bond] && mMol.getBondOrder(bond) != 0) {
 					int ringAtom[] = findSmallestRing(bond, isConfirmedChainAtom);
 					if (ringAtom != null)
-						updateRingSizes(ringAtom, getRingBonds(ringAtom));
+						updateRingSize(ringAtom, getRingBonds(ringAtom));
 					}
 				}
 			}
@@ -230,26 +238,26 @@ public class RingCollection {
 	/**
 	 * An atom's ring size is the size of the smallest ring the atom is a member of.
 	 * If the atom doesn't belong to any ring the ring size is 0. If an atom is member
-	 * of rings larger than 7 members only and if the mode parameter of the constructor
+	 * of rings larger than 7 members and if the mode parameter of the constructor
 	 * didn't include LARGE_RINGS, then the returned ring size is also 0.
 	 * @param atom
 	 * @return ring size or 0
 	 */
 	public int getAtomRingSize(int atom) {
-		return mAtomRingSize[atom];
+		return mAtomRingFeatures[atom] & FEATURES_RING_SIZE;
 		}
 
 
 	/**
 	 * A bond's ring size is the size of the smallest ring the bond is a member of.
 	 * If the bond doesn't belong to any ring the ring size is 0. If a bond is member
-	 * of rings larger than 7 members only and if the mode parameter of the constructor
+	 * of rings larger than 7 members and if the mode parameter of the constructor
 	 * didn't include LARGE_RINGS, then the returned ring size is also 0.
 	 * @param bond
 	 * @return ring size or 0
 	 */
 	public int getBondRingSize(int bond) {
-		return mBondRingSize[bond];
+		return mBondRingFeatures[bond] & FEATURES_RING_SIZE;
 		}
 
 
@@ -344,7 +352,7 @@ public class RingCollection {
 		int[] ringBond = getRingBonds(sortedRing);
 		mRingBondSet.add(ringBond);
 
-		updateRingSizes(sortedRing, ringBond);
+		updateRingSize(sortedRing, ringBond);
 		}
 
 
@@ -377,6 +385,78 @@ public class RingCollection {
 	 */
 	public boolean isAromatic(int ringNo) {
 		return mIsAromatic[ringNo];
+		}
+
+
+	/**
+	 * Return whether the atom is member if an aromatic ring.
+	 * If the mode parameter passed to the constructor didn't include AROMATICITY, then
+	 * a NullPointerException is raised.
+	 * @param atom
+	 * @return
+	 */
+	public boolean isAromaticAtom(int atom) {
+		return (mAtomRingFeatures[atom] & FEATURES_AROMATIC) != 0;
+		}
+
+
+	/**
+	 * Return whether the atom is member if a delocalized ring.
+	 * If the mode parameter passed to the constructor didn't include AROMATICITY, then
+	 * a NullPointerException is raised.
+	 * @param atom
+	 * @return
+	 */
+	public boolean isDelocalizedAtom(int atom) {
+		return (mAtomRingFeatures[atom] & FEATURES_DELOCALIZED) != 0;
+		}
+
+
+	/**
+	 * Return whether the atom is member if a hetero-aromatic ring.
+	 * If the mode parameter passed to the constructor didn't include AROMATICITY, then
+	 * a NullPointerException is raised.
+	 * @param atom
+	 * @return
+	 */
+	public boolean isHeteroAromaticAtom(int atom) {
+		return (mAtomRingFeatures[atom] & FEATURES_HETERO_AROMATIC) != 0;
+		}
+
+
+	/**
+	 * Return whether the bond is considered aromatic.
+	 * If the mode parameter passed to the constructor didn't include AROMATICITY, then
+	 * a NullPointerException is raised.
+	 * @param bond
+	 * @return
+	 */
+	public boolean isAromaticBond(int bond) {
+		return (mBondRingFeatures[bond] & FEATURES_AROMATIC) != 0;
+		}
+
+
+	/**
+	 * Return whether the bond is member if a delocalized ring.
+	 * If the mode parameter passed to the constructor didn't include AROMATICITY, then
+	 * a NullPointerException is raised.
+	 * @param bond
+	 * @return
+	 */
+	public boolean isDelocalizedBond(int bond) {
+		return (mBondRingFeatures[bond] & FEATURES_DELOCALIZED) != 0;
+		}
+
+
+	/**
+	 * Return whether the bond is member if a hetero-aromatic ring.
+	 * If the mode parameter passed to the constructor didn't include AROMATICITY, then
+	 * a NullPointerException is raised.
+	 * @param bond
+	 * @return
+	 */
+	public boolean isHeteroAromaticBond(int bond) {
+		return (mBondRingFeatures[bond] & FEATURES_HETERO_AROMATIC) != 0;
 		}
 
 
@@ -475,20 +555,69 @@ public class RingCollection {
 		return -1;
 		}
 
-	private void updateRingSizes(int[] ringAtom, int[] ringBond) {
+	private void updateRingSize(int[] ringAtom, int[] ringBond) {
 		int ringSize = ringAtom.length;
-		for (int i=0; i<ringSize; i++)
-			if (mAtomRingSize[ringAtom[i]] == 0
-			 || mAtomRingSize[ringAtom[i]] > ringSize)
-				mAtomRingSize[ringAtom[i]] = ringSize;
+		for (int i=0; i<ringSize; i++) {
+			int currentSize = mAtomRingFeatures[ringAtom[i]] & FEATURES_RING_SIZE;
+			if (currentSize == 0 || currentSize>ringSize) {
+				mAtomRingFeatures[ringAtom[i]] &= ~FEATURES_RING_SIZE;
+				mAtomRingFeatures[ringAtom[i]] |= ringSize;
+				}
+			}
 
-		for (int i=0; i<ringSize; i++)
-			if (mBondRingSize[ringBond[i]] == 0
-			 || mBondRingSize[ringBond[i]] > ringSize)
-				mBondRingSize[ringBond[i]] = ringSize;
+		for (int i=0; i<ringSize; i++) {
+			int currentSize = mBondRingFeatures[ringBond[i]] & FEATURES_RING_SIZE;
+			if (currentSize == 0 || currentSize>ringSize) {
+				mBondRingFeatures[ringBond[i]] &= ~FEATURES_RING_SIZE;
+				mBondRingFeatures[ringBond[i]] |= ringSize;
+				}
+			}
 		}
 
-	
+	private void updateAromaticity() {
+		for (int ring=0; ring<mIsAromatic.length; ring++) {
+			if (mIsAromatic[ring]) {
+				boolean isHeteroAromatic = false;
+				for (int atom:mRingAtomSet.get(ring)) {
+					mAtomRingFeatures[atom] |= FEATURES_AROMATIC;
+					if (qualifiesAsHeteroAtom(atom))
+						isHeteroAromatic = true;
+					}
+				for (int bond:mRingBondSet.get(ring))
+					mBondRingFeatures[bond] |= FEATURES_AROMATIC;
+
+				if (mIsDelocalized[ring]) {
+					for (int atom:mRingAtomSet.get(ring))
+						mAtomRingFeatures[atom] |= FEATURES_DELOCALIZED;
+					for (int bond:mRingBondSet.get(ring))
+						mBondRingFeatures[bond] |= FEATURES_DELOCALIZED;
+					}
+
+				if (isHeteroAromatic) {
+					for (int atom:mRingAtomSet.get(ring))
+						mAtomRingFeatures[atom] |= FEATURES_HETERO_AROMATIC;
+					for (int bond:mRingBondSet.get(ring))
+						mBondRingFeatures[bond] |= FEATURES_HETERO_AROMATIC;
+					}
+				}
+			}
+		}
+
+	private boolean qualifiesAsHeteroAtom(int atom) {
+		if (mMol.isFragment()) {
+			if ((mMol.getAtomQueryFeatures(atom) & Molecule.cAtomQFAny) != 0)
+				return false;
+			int[] atomList = mMol.getAtomList(atom);
+			if (atomList != null) {
+				for (int atomicNo : atomList)
+					if (!Molecule.isAtomicNoElectronegative(atomicNo))
+						return false;
+				return true;
+				}
+			}
+		return Molecule.isAtomicNoElectronegative(mMol.getAtomicNo(atom));
+		}
+
 	private int[] getRingBonds(int[] ringAtom) {
 		int ringAtoms = ringAtom.length;
 		int ringBond[] = new int[ringAtoms];
@@ -564,8 +693,13 @@ public class RingCollection {
 										 boolean includeTautomericBonds) {
 			// returns true if it can successfully determine and set the ring's aromaticity
 		int ringAtom[] = mRingAtomSet.get(ringNo);
+		for (int atom:ringAtom)
+			if (!qualifiesAsAromaticAtom(atom))
+				return true;
+
 		int ringBond[] = mRingBondSet.get(ringNo);
 		int ringBonds = ringBond.length;
+
 		int bondSequence = 0;
 		int aromaticButNotDelocalizedSequence = 0;
 		boolean unhandledAnnelatedRingFound = false;
@@ -685,7 +819,8 @@ public class RingCollection {
 			for (int carbeniumPosition=0; carbeniumPosition<7; carbeniumPosition++) {
 				if ((bondSequence & cSequence7Ring[carbeniumPosition]) == cSequence7Ring[carbeniumPosition]) {
 					if ((mMol.getAtomicNo(ringAtom[carbeniumPosition]) == 6
-					  && mMol.getAtomCharge(ringAtom[carbeniumPosition]) == 1)
+					  && (mMol.getAtomCharge(ringAtom[carbeniumPosition]) == 1
+					|| (includeTautomericBonds && hasOxo(ringAtom[carbeniumPosition]))))
 					 || (mMol.getAtomicNo(ringAtom[carbeniumPosition]) == 5
 					  && mMol.getAtomCharge(ringAtom[carbeniumPosition]) == 0)) {
 						isAromatic[ringNo] = true;
@@ -707,6 +842,14 @@ public class RingCollection {
 		return !unhandledAnnelatedRingFound;
 		}
 
+	private boolean hasOxo(int carbonAtom) {
+		for (int i=0; i<mMol.getConnAtoms(carbonAtom); i++)
+			if (mMol.getConnBondOrder(carbonAtom, i) == 2
+			 && mMol.getAtomicNo(mMol.getConnAtom(carbonAtom, i)) == 8)
+				return true;
+		return false;
+		}
+
 	private boolean qualifiesAsPiBond(int bond) {
 		return (mMol.getBondOrder(bond) > 1
 			 || mMol.getBondType(bond) == Molecule.cBondTypeDelocalized);
@@ -724,7 +867,7 @@ public class RingCollection {
 	public boolean qualifiesAsAmideTypeBond(int bond) {
 		for (int i=0; i<2; i++) {
 			int atom1 = mMol.getBondAtom(i, bond);
-			if (mMol.getAtomicNo(atom1) == 7
+			if ((mMol.getAtomicNo(atom1) == 7)
 			 && mMol.getConnAtoms(atom1) == 2) {
 				int atom2 = mMol.getBondAtom(1-i, bond);
 				if (mMol.getAtomicNo(atom2) == 6) {
@@ -741,5 +884,40 @@ public class RingCollection {
 			}
 
 		return false;
+		}
+
+	private boolean qualifiesAsAromaticAtom(int atom) {
+		// If we have a list or wildcard atom, then the atomicNo is meaningless...
+		if (mMol.isFragment()) {
+			// We consider wildcard atoms as being compatible with aromaticity
+			if ((mMol.getAtomQueryFeatures(atom) & Molecule.cAtomQFAny) != 0) {
+				// in theory, we must return false, if all atomicNos, which qualify for aromaticity,
+				// are part of the exclude list. In reality that is rather unlikely...
+				return true;
+				}
+			else {
+				int[] list = mMol.getAtomList(atom);
+				if (list != null) {
+					for (int atomicNo:list)
+						if (qualifiesAsAromaticAtomicNo(atomicNo))
+							return true;
+
+					return false;
+					}
+				}
+			}
+
+		return qualifiesAsAromaticAtomicNo(mMol.getAtomicNo(atom));
+		}
+
+	public static boolean qualifiesAsAromaticAtomicNo(int atomicNo) {
+		return atomicNo == 5
+			|| atomicNo == 6
+			|| atomicNo == 7
+			|| atomicNo == 8
+			|| atomicNo == 15   // P
+			|| atomicNo == 16   // S
+			|| atomicNo == 33   // As
+			|| atomicNo == 34;   // Se
 		}
 	}

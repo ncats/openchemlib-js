@@ -33,21 +33,8 @@ public class HydrogenHandler {
 			double dx, dy;
 			int iNew;
 			if (nNeighbours == 0) {
-				double distMin = Double.MAX_VALUE;
-				int iMin = -1;
-				for (int atm = 0; atm < molecule.getAllAtoms(); atm++) {
-					if (atm == iAtom)
-						continue;
-					double deltaX = x - molecule.getAtomX(atm);
-					double deltaY = y - molecule.getAtomY(atm);
-					double currDist = Math.sqrt((deltaX * deltaX) + (deltaY * deltaY));
-					if (distMin > currDist) {
-						distMin = currDist;
-						iMin = atm;
-					}
-				}
-				dx = x - molecule.getAtomX(iMin);
-				dy = y - molecule.getAtomY(iMin);
+				dx = molecule.getAverageBondLength(true);
+				dy = 0;
 			} else {
 				dx = x - molecule.getAtomX(molecule.getConnAtom(iAtom, 0));
 				dy = y - molecule.getAtomY(molecule.getConnAtom(iAtom, 0));
@@ -225,23 +212,42 @@ public class HydrogenHandler {
 			}
 			break;
 		case 3:
-			// CH3 and the like
+			// CH3, NH3 and the like
 		{
 			int iNew;
-			double dx = (x - molecule.getAtomX(molecule.getConnAtom(iAtom, 0)))*H_BOND_RATIO;
-			double dy = (y - molecule.getAtomY(molecule.getConnAtom(iAtom, 0)))*H_BOND_RATIO;
-			// backwards
-			iNew = molecule.addAtom((float)(x + dx),(float)(y + dy));
-			molecule.setAtomicNo(iNew, atomicNo);
-			molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
-			// to the left
-			iNew = molecule.addAtom((float)(x - dy),(float)(y + dx));
-			molecule.setAtomicNo(iNew, atomicNo);
-			molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
-			// to the right
-			iNew = molecule.addAtom((float)(x + dy),(float)(y - dx));
-			molecule.setAtomicNo(iNew, atomicNo);
-			molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
+			double dx;
+			double dy;
+			if (molecule.getConnAtom(iAtom, 0)>0) {
+				dx = (x - molecule.getAtomX(molecule.getConnAtom(iAtom, 0)))*H_BOND_RATIO;
+				dy = (y - molecule.getAtomY(molecule.getConnAtom(iAtom, 0)))*H_BOND_RATIO;
+				// backwards
+				iNew = molecule.addAtom((float)(x + dx),(float)(y + dy));
+				molecule.setAtomicNo(iNew, atomicNo);
+				molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
+				// to the left
+				iNew = molecule.addAtom((float)(x - dy),(float)(y + dx));
+				molecule.setAtomicNo(iNew, atomicNo);
+				molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
+				// to the right
+				iNew = molecule.addAtom((float)(x + dy),(float)(y - dx));
+				molecule.setAtomicNo(iNew, atomicNo);
+				molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);	
+			} else {
+				dx = molecule.getAverageBondLength(true);
+				dy = molecule.getAverageBondLength(true);
+				// forward
+				iNew = molecule.addAtom((float)(x + dx),(float)(y + dy));
+				molecule.setAtomicNo(iNew, atomicNo);
+				molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
+				// backwards top
+				iNew = molecule.addAtom((float)(x - dy*cos60),(float)(y + dx*sin60));
+				molecule.setAtomicNo(iNew, atomicNo);
+				molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
+				// backwards bottom
+				iNew = molecule.addAtom((float)(x - dy*cos60),(float)(y - dx*sin60));
+				molecule.setAtomicNo(iNew, atomicNo);
+				molecule.addBond(iAtom, iNew, Molecule.cBondTypeSingle);
+			}
 		}
 			break;
 		default:
@@ -296,4 +302,3 @@ public class HydrogenHandler {
 		return nbHydrogens;
 	}
 }
-

@@ -84,6 +84,10 @@ public class Color {
     return (rgbValue >> 24) & 0xff;
   }
 
+  public int getRGB() {
+    return rgbValue;
+  }
+
   private static float[] RGBtoHSV(float r, float g, float b, float[] hsbvals) {
     float hue = 0, saturation = 0, brightness = 0;
     if (hsbvals == null) {
@@ -151,6 +155,25 @@ public class Color {
       f[1] = realRGBValues[1];
       f[2] = realRGBValues[2];
       f[3] = alphaValue;
+    }
+    return f;
+  }
+
+  public float[] getRGBColorComponents(float[] compArray) {
+    float[] f;
+    if (compArray == null) {
+      f = new float[3];
+    } else {
+      f = compArray;
+    }
+    if (realRGBValues == null) {
+      f[0] = ((float) getRed()) / 255f;
+      f[1] = ((float) getGreen()) / 255f;
+      f[2] = ((float) getBlue()) / 255f;
+    } else {
+      f[0] = realRGBValues[0];
+      f[1] = realRGBValues[1];
+      f[2] = realRGBValues[2];
     }
     return f;
   }

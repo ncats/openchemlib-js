@@ -37,6 +37,7 @@ import com.actelion.research.chem.Molecule;
 import com.actelion.research.chem.NamedSubstituents;
 import com.actelion.research.chem.StereoMolecule;
 import com.actelion.research.chem.coords.CoordinateInventor;
+import com.actelion.research.gui.generic.GenericPoint;
 import com.actelion.research.share.gui.DialogResult;
 import com.actelion.research.share.gui.editor.Model;
 import com.actelion.research.share.gui.editor.dialogs.IAtomQueryFeaturesDialog;
@@ -45,9 +46,7 @@ import com.actelion.research.share.gui.editor.geom.IDrawContext;
 import com.actelion.research.share.gui.editor.io.IKeyEvent;
 import com.actelion.research.share.gui.editor.io.IMouseEvent;
 
-import java.awt.geom.Point2D;
 import java.util.function.Consumer;
-
 
 /**
  * Project:
@@ -63,9 +62,9 @@ public abstract class AtomHighlightAction extends DrawAction
         super(model);
     }
 
-    protected java.awt.geom.Point2D lastHightlightPoint = null;
+    protected GenericPoint lastHightlightPoint = null;
 
-    boolean trackHighLight(java.awt.geom.Point2D pt)
+    boolean trackHighLight(GenericPoint pt)
     {
         StereoMolecule mol = model.getMolecule();
         int currentAtom = model.getSelectedAtom();
@@ -111,7 +110,7 @@ public abstract class AtomHighlightAction extends DrawAction
     public boolean onMouseMove(IMouseEvent evt, boolean drag)
     {
         if (!drag) {
-            java.awt.geom.Point2D pt = new Point2D.Double(evt.getX(), evt.getY());
+            GenericPoint pt = new GenericPoint(evt.getX(), evt.getY());
             boolean ok = trackHighLight(pt);
             return ok;
         } else {
@@ -311,7 +310,7 @@ public abstract class AtomHighlightAction extends DrawAction
             int atom1 = theAtom;
             int hydrogenCount = mol.getAllAtoms() - mol.getAtoms();
             for (int i = 1; i < chainAtoms; i++) {
-                Point2D pt = suggestNewX2AndY2(atom1);
+                GenericPoint pt = suggestNewX2AndY2(atom1);
                 int atom2 = mol.addAtom(pt.getX(), pt.getY());
                 if (atom2 == -1) {
                     break;
@@ -329,7 +328,8 @@ public abstract class AtomHighlightAction extends DrawAction
         GeomFactory factory = model.getGeomFactory();
         StereoMolecule mol = model.getMolecule();
         if (mol != null) {
-            IAtomQueryFeaturesDialog dlg = factory.createAtomQueryFeatureDialog(/*new AtomQueryFeaturesDialog*/mol, atom);
+            boolean showReactionHints = (model.getMode() & Model.MODE_REACTION) != 0;
+            IAtomQueryFeaturesDialog dlg = factory.createAtomQueryFeatureDialog(mol, atom, showReactionHints);
             dlg.setResultHandler(new Consumer<DialogResult>()
             {
                 @Override
@@ -341,13 +341,12 @@ public abstract class AtomHighlightAction extends DrawAction
                     }
                 }
             });
-
             return dlg.doModalAt(lastHightlightPoint.getX(), lastHightlightPoint.getY()) == DialogResult.IDOK;
         }
         return false;
     }
 
-    public int findAtom(StereoMolecule mol, Point2D pt)
+    public int findAtom(StereoMolecule mol, GenericPoint pt)
     {
         int foundAtom = -1;
         double pickx = pt.getX();

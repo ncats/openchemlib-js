@@ -2,14 +2,67 @@
 
 export interface IMoleculeFromSmilesOptions {
   /**
-   * Disable extra coordinate computation. Default: false.
+   * Disable coordinate invention.
+   * @default false
    */
   noCoordinates?: boolean;
 
   /**
-   * Disable stereo features parsing. Default: false.
+   * Disable stereo features parsing.
+   * @default false
    */
   noStereo?: boolean;
+}
+
+export interface AtomQueryFeatures {
+  aromatic: boolean;
+  notAromatic: boolean;
+  notChain: boolean;
+  not2RingBonds: boolean;
+  not3RingBonds: boolean;
+  not4RingBonds: boolean;
+  noMoreNeighbours: boolean;
+  moreNeighbours: boolean;
+  matchStereo: boolean;
+  not0PiElectrons: boolean;
+  not1PiElectron: boolean;
+  not2PiElectrons: boolean;
+  not0Hydrogen: boolean;
+  not1Hydrogen: boolean;
+  not2Hydrogen: boolean;
+  not3Hydrogen: boolean;
+  not0Neighbours: boolean;
+  not1Neighbour: boolean;
+  not2Neighbours: boolean;
+  not3Neighbours: boolean;
+  not4Neighbours: boolean;
+  notChargeNeg: boolean;
+  notCharge0: boolean;
+  noChargePos: boolean;
+  ringSize0: boolean;
+  ringSize3: boolean;
+  ringSize4: boolean;
+  ringSize5: boolean;
+  ringSize6: boolean;
+  ringSize7: boolean;
+  ringSizeLarge: boolean;
+}
+
+export interface BondQueryFeatures {
+  single: boolean;
+  double: boolean;
+  triple: boolean;
+  delocalized: boolean;
+  metalLigand: boolean;
+  quadruple: boolean;
+  quintuple: boolean;
+  notRing: boolean;
+  ring: boolean;
+  aromatic: boolean;
+  nonAromatic: boolean;
+  ringSize: number;
+  brigdeMin: number;
+  brigdeSpan: number;
 }
 
 export interface IMoleculeToSVGOptions extends IDepictorOptions {
@@ -59,6 +112,24 @@ export interface IHoseCodesOptions {
   type: 0 | 1;
 }
 
+export interface ISmilesGeneratorOptions {
+  /**
+   * Whether to create SMILES with SMARTS capabilities.
+   * @default false
+   */
+  createSmarts?: boolean;
+  /**
+   * Whether to include mapping information (atomMapNo) in the SMILES.
+   * @default false
+   */
+  includeMapping?: boolean;
+  /**
+   * Should localisation of double bonds be attempted?
+   * @default false
+   */
+  kekulizedOutput?: boolean;
+}
+
 export interface Rectangle {
   /**
    * X-coordinate of the top-left corner.
@@ -89,6 +160,10 @@ export declare class Molecule {
    */
   constructor(maxAtoms: number, maxBonds: number);
 
+  // based on JSMolecule.java you can do a regexp ".*static.* (int|long|double)(.*) = .*;" and replace with "$2: number;"
+
+  // bonds to represent aromaticity
+
   static CANONIZER_CREATE_SYMMETRY_RANK: number;
   static CANONIZER_CONSIDER_DIASTEREOTOPICITY: number;
   static CANONIZER_CONSIDER_ENANTIOTOPICITY: number;
@@ -99,22 +174,22 @@ export declare class Molecule {
   static CANONIZER_COORDS_ARE_3D: number;
   static CANONIZER_CREATE_PSEUDO_STEREO_GROUPS: number;
   static CANONIZER_DISTINGUISH_RACEMIC_OR_GROUPS: number;
+  static CANONIZER_TIE_BREAK_FREE_VALENCE_ATOMS: number;
+  static CANONIZER_ENCODE_ATOM_CUSTOM_LABELS_WITHOUT_RANKING: number;
+  static CANONIZER_NEGLECT_ANY_STEREO_INFORMATION: number;
 
   static cMaxAtomicNo: number;
-
   static cAtomParityNone: number;
   static cAtomParity1: number;
   static cAtomParity2: number;
   static cAtomParityUnknown: number;
   static cAtomParityIsPseudo: number;
-
   static cAtomRadicalState: number;
   static cAtomRadicalStateShift: number;
   static cAtomRadicalStateNone: number;
   static cAtomRadicalStateS: number;
   static cAtomRadicalStateD: number;
   static cAtomRadicalStateT: number;
-
   static cAtomColorNone: number;
   static cAtomColorBlue: number;
   static cAtomColorRed: number;
@@ -123,18 +198,15 @@ export declare class Molecule {
   static cAtomColorOrange: number;
   static cAtomColorDarkGreen: number;
   static cAtomColorDarkRed: number;
-
   static cAtomCIPParityNone: number;
   static cAtomCIPParityRorM: number;
   static cAtomCIPParitySorP: number;
   static cAtomCIPParityProblem: number;
-
   static cESRTypeAbs: number;
   static cESRTypeAnd: number;
   static cESRTypeOr: number;
   static cESRMaxGroups: number;
   static cESRGroupBits: number;
-
   static cAtomQFNoOfBits: number;
   static cAtomQFAromStateBits: number;
   static cAtomQFAromStateShift: number;
@@ -146,10 +218,18 @@ export declare class Molecule {
   static cAtomQFPiElectronShift: number;
   static cAtomQFNeighbourBits: number;
   static cAtomQFNeighbourShift: number;
-  static cAtomQFRingSizeBits: number;
-  static cAtomQFRingSizeShift: number;
+  static cAtomQFSmallRingSizeBits: number;
+  static cAtomQFSmallRingSizeShift: number;
   static cAtomQFChargeBits: number;
   static cAtomQFChargeShift: number;
+  static cAtomQFRxnParityBits: number;
+  static cAtomQFRxnParityShift: number;
+  static cAtomQFNewRingSizeBits: number;
+  static cAtomQFNewRingSizeShift: number;
+  static cAtomQFENeighbourBits: number;
+  static cAtomQFENeighbourShift: number;
+  static cAtomQFStereoStateBits: number;
+  static cAtomQFStereoStateShift: number;
   static cAtomQFSimpleFeatures: number;
   static cAtomQFNarrowing: number;
   static cAtomQFAny: number;
@@ -179,38 +259,72 @@ export declare class Molecule {
   static cAtomQFNot2Neighbours: number;
   static cAtomQFNot3Neighbours: number;
   static cAtomQFNot4Neighbours: number;
-  static cAtomQFRingSize: number;
+  static cAtomQFSmallRingSize: number;
+
   static cAtomQFCharge: number;
   static cAtomQFNotChargeNeg: number;
   static cAtomQFNotCharge0: number;
   static cAtomQFNotChargePos: number;
   static cAtomQFFlatNitrogen: number;
+
   static cAtomQFExcludeGroup: number;
+
+  static cAtomQFRxnParityHint: number;
+
+  static cAtomQFRxnParityRetain: number;
+  static cAtomQFRxnParityInvert: number;
+  static cAtomQFRxnParityRacemize: number;
+  static cAtomQFNewRingSize: number;
+  static cAtomQFRingSize0: number;
+  static cAtomQFRingSize3: number;
+  static cAtomQFRingSize4: number;
+  static cAtomQFRingSize5: number;
+  static cAtomQFRingSize6: number;
+  static cAtomQFRingSize7: number;
+  static cAtomQFRingSizeLarge: number;
+  static cAtomQFENeighbours: number;
+  static cAtomQFNot0ENeighbours: number;
+  static cAtomQFNot1ENeighbour: number;
+  static cAtomQFNot2ENeighbours: number;
+  static cAtomQFNot3ENeighbours: number;
+  static cAtomQFNot4ENeighbours: number;
+  static cAtomQFStereoState: number;
+  static cAtomQFIsStereo: number;
+  static cAtomQFIsNotStereo: number;
+  static cAtomQFHeteroAromatic: number;
 
   static cBondTypeSingle: number;
   static cBondTypeDouble: number;
   static cBondTypeTriple: number;
+  static cBondTypeQuadruple: number;
+  static cBondTypeQuintuple: number;
+  static cBondTypeMetalLigand: number;
+  static cBondTypeDelocalized: number;
   static cBondTypeDown: number;
   static cBondTypeUp: number;
   static cBondTypeCross: number;
-  static cBondTypeMetalLigand: number;
-  static cBondTypeDelocalized: number;
   static cBondTypeDeleted: number;
   static cBondTypeIncreaseOrder: number;
+
+  static cBondTypeMaskSimple: number;
+  static cBondTypeMaskStereo: number;
+
+  static cBondFlagsHelper2: number;
+  static cBondFlagsHelper3: number;
 
   static cBondParityNone: number;
   static cBondParityEor1: number;
   static cBondParityZor2: number;
   static cBondParityUnknown: number;
-
   static cBondCIPParityNone: number;
   static cBondCIPParityEorP: number;
   static cBondCIPParityZorM: number;
   static cBondCIPParityProblem: number;
-
   static cBondQFNoOfBits: number;
   static cBondQFBondTypesBits: number;
   static cBondQFBondTypesShift: number;
+  static cBondQFRareBondTypesBits: number;
+  static cBondQFRareBondTypesShift: number;
   static cBondQFRingStateBits: number;
   static cBondQFRingStateShift: number;
   static cBondQFBridgeBits: number;
@@ -227,11 +341,14 @@ export declare class Molecule {
   static cBondQFSimpleFeatures: number;
   static cBondQFNarrowing: number;
   static cBondQFBondTypes: number;
+  static cBondQFRareBondTypes: number;
   static cBondQFSingle: number;
   static cBondQFDouble: number;
   static cBondQFTriple: number;
   static cBondQFDelocalized: number;
   static cBondQFMetalLigand: number;
+  static cBondQFQuadruple: number;
+  static cBondQFQuintuple: number;
   static cBondQFRingState: number;
   static cBondQFNotRing: number;
   static cBondQFRing: number;
@@ -243,24 +360,31 @@ export declare class Molecule {
   static cBondQFAromState: number;
   static cBondQFAromatic: number;
   static cBondQFNotAromatic: number;
+  static cBondQFMatchFormalOrder: number;
 
+  static cHelperAll: number;
   static cHelperNone: number;
   static cHelperBitNeighbours: number;
+  static cHelperBitRingsSimple: number;
+
   static cHelperBitRings: number;
   static cHelperBitParities: number;
   static cHelperBitCIP: number;
+
   static cHelperBitSymmetrySimple: number;
-  static cHelperBitSymmetryDiastereotopic: number;
-  static cHelperBitSymmetryEnantiotopic: number;
+  static cHelperBitSymmetryStereoHeterotopicity: number;
   static cHelperBitIncludeNitrogenParities: number;
+
   static cHelperBitsStereo: number;
+
   static cHelperNeighbours: number;
+  static cHelperRingsSimple: number;
   static cHelperRings: number;
   static cHelperParities: number;
   static cHelperCIP: number;
+
   static cHelperSymmetrySimple: number;
-  static cHelperSymmetryDiastereotopic: number;
-  static cHelperSymmetryEnantiotopic: number;
+  static cHelperSymmetryStereoHeterotopicity: number;
 
   static cChiralityIsomerCountMask: number;
   static cChiralityUnknown: number;
@@ -272,17 +396,33 @@ export declare class Molecule {
   static cChiralityEpimers: number;
   static cChiralityDiastereomers: number;
 
+  static cDefaultAVBL: number;
+
   static cMoleculeColorDefault: number;
   static cMoleculeColorNeutral: number;
+
+  static cPseudoAtomsHydrogenIsotops: number;
+  static cPseudoAtomsRGroups: number;
+  static cPseudoAtomsAGroups: number;
+  static cPseudoAtomR: number;
+  static cPseudoAtomA: number;
+  static cPseudoAtomX: number;
+  static cPseudoAtomsAminoAcids: number;
+  static cPseudoAtomPolymer: number;
+  static cPseudoAtomAttachmentPoint: number;
+  static cPseudoAtomsAll: number;
+  static cDefaultAllowedPseudoAtoms: number;
 
   static cAtomLabel: string[];
 
   static cRoundedMass: number[];
 
   static cDefaultAtomValence: number;
+  static cAtomValence: number[][];
+  static cCommonOxidationState: number[][];
 
   static FISCHER_PROJECTION_LIMIT: number;
-
+  static FISCHER_PROJECTION_RING_LIMIT: number;
   static STEREO_ANGLE_LIMIT: number;
 
   static cMaxConnAtoms: number;
@@ -304,7 +444,7 @@ export declare class Molecule {
    */
   static fromSmiles(
     smiles: string,
-    options?: IMoleculeFromSmilesOptions
+    options?: IMoleculeFromSmilesOptions,
   ): Molecule;
 
   /**
@@ -317,16 +457,17 @@ export declare class Molecule {
    * Parse the provided `molfile` and return an object with `Molecule` and map.
    * @param molfile - MDL Molfile string in V2000 or V3000.
    */
-  static fromMolfileWithAtomMap(
-    molfile: string
-  ): { molecule: Molecule; map: number[] };
+  static fromMolfileWithAtomMap(molfile: string): {
+    molecule: Molecule;
+    map: number[];
+  };
 
   /**
    * Parse the provided `idcode` and return a `Molecule`.
    * @param idcode
    * @param coordinates
    */
-  static fromIDCode(idcode: string, coordinates: string): Molecule;
+  static fromIDCode(idcode: string, coordinates?: string): Molecule;
 
   /**
    * Parse the provided `idcode` and return a `Molecule`.
@@ -336,7 +477,10 @@ export declare class Molecule {
    */
   static fromIDCode(idcode: string, ensure2DCoordinates?: boolean): Molecule;
 
-  static getAtomicNoFromLabel(atomLabel: string): number;
+  static getAtomicNoFromLabel(
+    atomLabel: string,
+    allowedPseudoAtomGroups?: number,
+  ): number;
 
   static getAngle(x1: number, y1: number, x2: number, y2: number): number;
 
@@ -357,9 +501,17 @@ export declare class Molecule {
 
   static isAtomicNoElectropositive(atomicNo: number): boolean;
 
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
+
   toSmiles(): string;
 
-  toIsomericSmiles(): string;
+  toSmarts(): string;
+
+  toIsomericSmiles(options?: ISmilesGeneratorOptions): string;
 
   /**
    * Returns a MDL Molfile V2000 string.
@@ -383,10 +535,19 @@ export declare class Molecule {
     width: number,
     height: number,
     id?: string,
-    options?: IMoleculeToSVGOptions
+    options?: IMoleculeToSVGOptions,
   ): string;
 
+  /**
+   * Get an ID code for the molecule
+   * @param flag
+   */
   getCanonizedIDCode(flag: number): string;
+
+  /**
+   * Returns the canonic numbering of the atoms.
+   */
+  getFinalRanks(flag: number): number[];
 
   /**
    * Returns an object with both the ID code and coordinates of the molecule.
@@ -463,23 +624,39 @@ export declare class Molecule {
     mass: number,
     abnormalValence: number,
     radical: number,
-    customLabel: string
+    customLabel: string,
   ): boolean;
 
   addOrChangeBond(atm1: number, atm2: number, type: number): number;
 
-  addRing(x: number, y: number, ringSize: number, aromatic: boolean): boolean;
+  addRing(
+    x: number,
+    y: number,
+    ringSize: number,
+    aromatic: boolean,
+    bondLength: number,
+  ): boolean;
 
-  addRingToAtom(atom: number, ringSize: number, aromatic: boolean): boolean;
+  addRingToAtom(
+    atom: number,
+    ringSize: number,
+    aromatic: boolean,
+    bondLength: number,
+  ): boolean;
 
-  addRingToBond(bond: number, ringSize: number, aromatic: boolean): boolean;
+  addRingToBond(
+    bond: number,
+    ringSize: number,
+    aromatic: boolean,
+    bondLength: number,
+  ): boolean;
 
   changeAtom(
     atom: number,
     atomicNo: number,
     mass: number,
     abnormalValence: number,
-    radical: number
+    radical: number,
   ): boolean;
 
   changeAtomCharge(atom: number, positive: boolean): boolean;
@@ -496,10 +673,13 @@ export declare class Molecule {
   addMolecule(mol: Molecule): number[];
 
   /**
-   *
+   * Adds and connects the substituent molecule to the connectionAtom of this molecule.
+   * Substituent atoms with atomicNo=0 are not copied and considered to represent the connectionAtom.
+   * Bonds leading to them, however, are copied and connected to the connectionAtom.
+   * High level function for constructing a molecule.
    * @param substituent
    * @param connectionAtom
-   * @returns Atom mapping from substituent to this molecule after addition of substituent.
+   * @return atom mapping from substituent to this molecule after addition of substituent
    */
   addSubstituent(substituent: Molecule, connectionAtom: number): number[];
 
@@ -526,7 +706,7 @@ export declare class Molecule {
     destMol: Molecule,
     sourceAtom: number,
     esrGroupOffsetAND: number,
-    esrGroupOffsetOR: number
+    esrGroupOffsetOR: number,
   ): number;
 
   /**
@@ -542,7 +722,7 @@ export declare class Molecule {
     destMol: Molecule,
     sourceBond: number,
     esrGroupOffsetAND: number,
-    esrGroupOffsetOR: number
+    esrGroupOffsetOR: number,
   ): number;
 
   /**
@@ -569,6 +749,20 @@ export declare class Molecule {
    * @returns number of ESR groups
    */
   renumberESRGroups(type: number): number;
+
+  /**
+   * Swaps two atoms' indexes/locations in the atom table.
+   * @param atom1
+   * @param atom2
+   */
+  swapAtoms(atom1: number, atom2: number): void;
+
+  /**
+   * Swaps two bonds' indexes/locations in the atom table.
+   * @param bond1
+   * @param bond2
+   */
+  swapBonds(bond1: number, bond2: number): void;
 
   /**
    * After the deletion the original order of atom and bond indexes is retained.
@@ -644,11 +838,15 @@ export declare class Molecule {
   deleteMarkedAtomsAndBonds(): number[];
 
   /**
-   * Empties the molecule to serve as container for constructing a new molecule,
-   * e.g. by multiply calling addAtom(...), addBond(...) and other high level
-   * methods.
+   * @deprecated Use clear() instead of this method.
    */
   deleteMolecule(): void;
+
+  /**
+   * Empties the molecule to serve as container for constructing a new molecule,
+   * e.g. by multiply calling addAtom(...), addBond(...) and other high level methods.
+   */
+  clear(): void;
 
   removeAtomSelection(): void;
 
@@ -760,6 +958,18 @@ export declare class Molecule {
   getAtomLabel(atom: number): string;
 
   /**
+   * Get the atomic query features as an object
+   * @param atom
+   */
+  getAtomQueryFeaturesObject(atom: number): AtomQueryFeatures;
+
+  /**
+   * Get the bond query features as an object
+   * @param bond
+   */
+  getBondQueryFeaturesObject(bond: number): BondQueryFeatures;
+
+  /**
    * The list of atoms that are allowed at this position during sub-structure
    * search. (or refused atoms, if atom query feature cAtomQFAny is set).
    * @param atom
@@ -810,7 +1020,7 @@ export declare class Molecule {
    * <i>getAtomQueryFeatures() & cAtomQFHydrogen</i>
    * @param atom
    */
-  getAtomQueryFeatures(atom: number): number;
+  // getAtomQueryFeatures(atom: number): number;
 
   /**
    * Gets an atom's radical state as singulet,dublet,triplet or none
@@ -889,10 +1099,11 @@ export declare class Molecule {
   getBondLength(bond: number): number;
 
   /**
-   * Delocalized bonds, i.e. bonds in an aromatic 6-membered ring, are returned as
-   * 1. Ligand field bonds are returned as 0.
+   * Returns the formal bond order. Delocalized rings have alternating single and double
+   * bonds, which are returned as such. Bonds that are explicitly marked as being delocalized
+   * are returned as 1. Dative bonds are returned as 0.
    * @param bond
-   * @returns for organic molecules 1, 2 or 3.
+   * @return formal bond order 0 (dative bonds), 1, 2, or 3
    */
   getBondOrder(bond: number): number;
 
@@ -1059,6 +1270,11 @@ export declare class Molecule {
   isFragment(): boolean;
 
   /**
+   * @return true if at least one z-coordinate is different from 0.0
+   */
+  is3D(): boolean;
+
+  /**
    *
    * @param atom
    * @returns whether the atom has the natural isotop distribution
@@ -1172,7 +1388,7 @@ export declare class Molecule {
    * @param mapNo
    * @param autoMapped
    */
-  setAtomMapNo(atom: number, mapNo: number, autoMapped: boolean): void;
+  setAtomMapNo(atom: number, mapNo: number, autoMapped?: boolean): void;
 
   /**
    * Set atom to specific isotop or to have a natural isotop distribution
@@ -1234,7 +1450,7 @@ export declare class Molecule {
    * sub-structure search.
    * </p>
    * @param atom
-   * @param feature - one of cAtomQF...
+   * @param feature - one of cAtomQF... Because of long it could be an internal object
    * @param value - if true, the feature is set, otherwise it is removed
    */
   setAtomQueryFeature(atom: number, feature: number, value: boolean): void;
@@ -1534,7 +1750,7 @@ export declare class Molecule {
     destMol: Molecule,
     includeAtom: boolean[],
     recognizeDelocalizedBonds: boolean,
-    atomMap: number[]
+    atomMap: number[],
   ): void;
 
   /**
@@ -1556,7 +1772,7 @@ export declare class Molecule {
     destMol: Molecule,
     includeBond: boolean[],
     recognizeDelocalizedBonds: boolean,
-    atomMap: number[]
+    atomMap: number[],
   ): number[];
 
   /**
@@ -1675,8 +1891,7 @@ export declare class Molecule {
    * 3. non-plain-hydrogen atoms (bond order 0, i.e. metall ligand bond)<br>
    * Only valid after calling ensureHelperArrays(cHelperNeighbours or higher);
    * @param atom
-   * @returns count of category 1 & 2 & 3 neighbour atoms (excludes neighbours
-   *         connected with zero bond order)
+   * @return count of category 1 & 2 & 3 neighbour atoms
    */
   getAllConnAtomsPlusMetalBonds(atom: number): number;
 
@@ -1718,6 +1933,13 @@ export declare class Molecule {
   getNonHydrogenNeighbourCount(atom: number): number;
 
   /**
+   * This method returns the count of atom neighbours which are marked as being an exclude group.
+   * @param atom
+   * @return the number of non-hydrogen neighbor atoms
+   */
+  getExcludedNeighbourCount(atom: number): number;
+
+  /**
    * Calculates and returns the mean bond length of all bonds including or not
    * including hydrogen bonds. If there are no bonds, then the average distance
    * between unconnected atoms is returned. If we have less than 2 atoms,
@@ -1727,9 +1949,9 @@ export declare class Molecule {
   getAverageBondLength(nonHydrogenBondsOnly: boolean): number;
 
   /**
-   * The sum of bond orders of explicitly connected neighbour atoms including
-   * explicit hydrogen. The occupied valence includes bonds to atoms with set
-   * cAtomQFExcludeGroup flags.
+   * The sum of bond orders of explicitly connected neighbour atoms including explicit hydrogen.
+   * In case of a fragment the occupied valence does not include bonds to atoms of which the cAtomQFExcludeGroup flag is set.
+   * Atom charge and radical states are not considered.
    * @param atom
    * @returns explicitly used valence
    */
@@ -1749,7 +1971,7 @@ export declare class Molecule {
   getFreeValence(atom: number): number;
 
   /**
-   * The free valence is the number of potential additional single bonded
+   * The lowest free valence is the number of potential additional single bonded
    * neighbours to reach the atom's lowest valence above or equal its current
    * occupied valence. Atom charges are considered. Implicit hydrogens are not
    * considered. Thus, the phosphor atoms in PF2 and PF4 both have a lowest free
@@ -1772,7 +1994,7 @@ export declare class Molecule {
    */
   getImplicitHigherValence(
     atom: number,
-    neglectExplicitHydrogen: boolean
+    neglectExplicitHydrogen: boolean,
   ): number;
 
   /**
@@ -1804,7 +2026,7 @@ export declare class Molecule {
     atom1: number,
     atom2: number,
     maxLength: number,
-    neglectBond: boolean[]
+    neglectBond: boolean[],
   ): number;
 
   /**
@@ -1816,7 +2038,7 @@ export declare class Molecule {
   getPathBonds(
     pathAtom: number[],
     pathBond: number[],
-    pathLength: number
+    pathLength: number,
   ): void;
 
   /**
@@ -1865,7 +2087,7 @@ export declare class Molecule {
   getFragmentNumbers(
     fragmentNo: number[],
     markedAtomsOnly: boolean,
-    considerMetalBonds: boolean
+    considerMetalBonds: boolean,
   ): number;
 
   /**
@@ -1891,7 +2113,7 @@ export declare class Molecule {
     startAtom: number,
     aromaticOnly: boolean,
     isMemberAtom: boolean[],
-    isMemberBond: boolean[]
+    isMemberBond: boolean[],
   ): void;
 
   /**
@@ -1918,7 +2140,7 @@ export declare class Molecule {
     firstAtom: number,
     isMemberAtom: boolean[],
     substituent: Molecule,
-    atomMap: number[]
+    atomMap: number[],
   ): number;
 
   /**
@@ -2135,7 +2357,7 @@ export declare class Molecule {
     atom: number,
     sortedConnMap: number[],
     angle: number[],
-    direction: number[]
+    direction: number[],
   ): number;
 
   /**
@@ -2147,11 +2369,22 @@ export declare class Molecule {
   setStereoBondFromBondParity(bond: number): void;
 
   /**
-   * Checks whether atom is one of the two end of an allene.
+   * If atom is one of the two ends of an allene then returns allene center atom.
    * @param atom
    * @returns allene center or -1
    */
   findAlleneCenterAtom(atom: number): number;
+
+  /**
+   * Crawls along a chain of sp-hybridized atoms starting from atom2 (which may not be
+   * sp-hybridized) away from its sp-hybridized neighbour atom1. Returns the first atom
+   * that is either not sp-hybridized anymore or the last atom of the chain if that is still
+   * sp-hybridized. Returns -1 in case of an sp-hybridized cycle.
+   * @param atom1 sp-hybridized atom
+   * @param atom2 neighbour atom of atom1
+   * @return first non-sp-hybridized atom when crawling from atom2 away from atom1
+   */
+  findAlleneEndAtom(atom1: number, atom2: number): number;
 
   /**
    * Checks whether atom is one of the two atoms of an axial chirality bond of
@@ -2236,14 +2469,17 @@ export declare class Molecule {
   isHalogene(atom: number): boolean;
 
   /**
-   * Canonizes charge distribution in single- and multifragment molecules.
-   * Neutralizes positive and an equal amount of negative charges on
-   * electronegative atoms, provided these are not on 1,2-dipolar structures, in
-   * order to ideally achieve a neutral molecule. This method does not change the
-   * overall charge of the molecule. It does not change the number of explicit
-   * atoms or bonds or their connectivity except bond orders.
-   * @param allowUnbalancedCharge
-   * @returns remaining overall molecule charge
+   * Normalizes charge distribution in single- and multifragment molecules.
+   * In a first step polar bonds (both atoms have opposite charge) are neutralized
+   * by removing both atom charges and increasing the bond order, provided that atom
+   * valences allow the change.
+   * Neutralizes positive and an equal amount of negative charges on electronegative atoms,
+   * provided these are not on 1,2-dipolar structures, in order to ideally achieve a neutral molecule.
+   * This method does not change the overall charge of the molecule. It does not change the number of
+   * explicit atoms or bonds or their connectivity except bond orders.
+   * This method does not deprotonate acidic groups to compensate for quarternary charged nitrogen.
+   * @param allowUnbalancedCharge throws an exception after polar bond neutralization, if overall charge is not zero
+   * @return remaining overall molecule charge
    */
   canonizeCharge(allowUnbalancedCharge: boolean): number;
 
@@ -2322,11 +2558,11 @@ export declare class Molecule {
    * Removes all plain explicit hydrogens atoms from the molecule, converting them
    * effectively to implicit ones. If the molecules has 2D-coordinates (is3D==false),
    * then this method perceives stereo configurations from up/down-bonds
-	 * to explicit hydrogens before deleting them and turns another bond into a
+   * to explicit hydrogens before deleting them and turns another bond into a
    * stereo bond to indicate the proper configuration.
-	 * If the removal of a hydrogen atom would change an atom's implicit valence,
+   * If the removal of a hydrogen atom would change an atom's implicit valence,
    * the atom's abnormal valence is set accordingly.
-	 * @param is3D pass true, if atom coordinates are three dimensional
+   * @param is3D pass true, if atom coordinates are three dimensional
    */
   removeExplicitHydrogens(is3D: boolean): void;
 
@@ -2435,6 +2671,82 @@ export declare class Molecule {
   setAssignParitiesToNitrogen(b: boolean): void;
 }
 
+export interface ISmilesParserOptions {
+  /**
+   * Enable SMARTS parsing with `'smarts'` or `'guess'`.
+   * @default 'smiles'
+   */
+  smartsMode?: 'smiles' | 'smarts' | 'guess';
+
+  skipCoordinateTemplates?: boolean;
+
+  makeHydrogenExplicit?: boolean;
+
+  /**
+   * Disable parsing of CACTVS syntax.
+   */
+  noCactvs?: boolean;
+
+  /**
+   * Consider single dots '.' (rather than '..') as molecule separator when parsing reactions.
+   */
+  singleDotSeparator?: boolean;
+
+  createSmartsWarnings?: boolean;
+}
+
+export interface ISmilesParserParseMoleculeOptions {
+  /**
+   * Molecule to parse into.
+   */
+  molecule?: Molecule;
+
+  /**
+   * Disable coordinate invention.
+   * @default false
+   */
+  noCoordinates?: boolean;
+
+  /**
+   * Disable stereo features parsing.
+   * @default false
+   */
+  noStereo?: boolean;
+}
+
+export declare class SmilesParser {
+  /**
+   * Create a SMILES parser.
+   */
+  constructor(options?: ISmilesParserOptions);
+
+  /**
+   * Set the random seed used to invent coordinates.
+   * @param seed
+   */
+  setRandomSeed(seed: number): void;
+
+  /**
+   * Parse a SMILES string and return a molecule.
+   */
+  parseMolecule(
+    smiles: string,
+    options?: ISmilesParserParseMoleculeOptions,
+  ): Molecule;
+
+  /**
+   * Parse a SMILES string and return a reaction.
+   */
+  parseReaction(smiles: string): Reaction;
+
+  /**
+   * If createSmartsWarnings in the constructor was passed as true, then this method
+   * returns a list of all SMARTS features, which could not be interpreted in the most recently
+   * parsed SMILES/SMARTS pattern.
+   */
+  getSmartsWarning(): string;
+}
+
 export interface MolecularFormula {
   absoluteWeight: number;
 
@@ -2452,6 +2764,12 @@ export declare class RingCollection {
   static MODE_SMALL_AND_LARGE_RINGS_AND_AROMATICITY: number;
 
   private constructor();
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   getAtomRingSize(atom: number): number;
 
@@ -2487,10 +2805,42 @@ export declare class RingCollection {
     isAromatic: boolean[],
     isDelocalized: boolean[],
     heteroPosition: number[],
-    includeTautomericBonds: boolean
+    includeTautomericBonds: boolean,
   ): void;
 
   qualifiesAsAmideTypeBond(bond: number): boolean;
+}
+
+/**
+ * Class allowing to acccess advanced options of getIDCode
+ * @example
+ * ```js
+ * let molecule = OCL.Molecule.fromSmiles('C[C@H](Cl)CC');
+ * molecule = OCL.Molecule.fromSmiles('CC=C(O)CC');
+ *
+ * console.log(molecule.getIDCode());
+ * console.log(OCL.CanonizerUtil.getIDCode(molecule, OCL.CanonizerUtil.NORMAL));
+ * console.log(OCL.CanonizerUtil.getIDCode(molecule, OCL.CanonizerUtil.NOSTEREO));
+ * console.log(OCL.CanonizerUtil.getIDCode(molecule, OCL.CanonizerUtil.BACKBONE));
+ * console.log(OCL.CanonizerUtil.getIDCode(molecule, OCL.CanonizerUtil.TAUTOMER));
+ * console.log(OCL.CanonizerUtil.getIDCode(molecule, OCL.CanonizerUtil.NOSTEREO_TAUTOMER));
+ * ```
+ */
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+export declare class CanonizerUtil {
+  static NORMAL: 0;
+  static NOSTEREO: 1;
+  static BACKBONE: 2;
+  static TAUTOMER: 3;
+  static NOSTEREO_TAUTOMER: 4;
+
+  private constructor();
+
+  /**
+   * @param mol
+   * @param type NORMAL, NOSTEREO, BACKBONE, TAUTOMER, NOSTEREO_TAUTOMER
+   */
+  static getIDCode(mol: Molecule, type: number): string;
 }
 
 /**
@@ -2498,42 +2848,29 @@ export declare class RingCollection {
  */
 export interface IDepictorOptions {
   inflateToMaxAVBL?: boolean;
-
   inflateToHighResAVBL?: boolean;
-
   chiralTextBelowMolecule?: boolean;
-
   chiralTextAboveMolecule?: boolean;
-
   chiralTextOnFrameTop?: boolean;
-
   chiralTextOnFrameBottom?: boolean;
 
   noTabus?: boolean;
-
   showAtomNumber?: boolean;
-
   showBondNumber?: boolean;
-
   highlightQueryFeatures?: boolean;
-
   showMapping?: boolean;
-
   suppressChiralText?: boolean;
-
   suppressCIPParity?: boolean;
-
   suppressESR?: boolean;
 
+  showSymmetryAny?: boolean;
   showSymmetrySimple?: boolean;
-
-  showSymmetryDiastereotopic?: boolean;
-
-  showSymmetryEnantiotopic?: boolean;
-
+  showSymmetryStereoHeterotopicity?: boolean;
   noImplicitAtomLabelColors?: boolean;
-
   noStereoProblem?: boolean;
+  noColorOnESRAndCIP?: boolean;
+  noImplicitHydrogen?: boolean;
+  drawBondsInGray?: boolean;
 }
 
 export declare class Reaction {
@@ -2564,6 +2901,12 @@ export declare class Reaction {
    * @param rxn - The RXN file's contents
    */
   static fromRxn(rxn: string): Reaction;
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   /**
    * Serialize the `Reaction` to a reaction SMILES string.
@@ -2746,6 +3089,18 @@ export declare class Reaction {
   getMergedCopy(): Reaction;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class,unicorn/no-static-only-class
+export declare class ReactionEncoder {
+  static encode(reaction: Reaction): string | null;
+  static decode(reaction: string): Reaction;
+}
+
+export declare class Reactor {
+  constructor(reaction: Reaction);
+  setReactant(no: number, reactant: Molecule): boolean;
+  getProducts(): Molecule[][];
+}
+
 export declare class SDFileParser {
   /**
    * Creates a new parser.
@@ -2754,6 +3109,12 @@ export declare class SDFileParser {
    * to find all possible names (not efficient).
    */
   constructor(sdf: string, fields: string[]);
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   /**
    * Move to the next Molfile. Returns `true` if there is one, `false` otherwise.
@@ -2807,6 +3168,12 @@ export declare class SSSearcher {
   constructor();
 
   /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
+
+  /**
    * Set the `fragment` to search.
    * @param fragment - `Molecule` instance to set as fragment. It has to be
    * flagged with `setFragment(true)` first.
@@ -2840,6 +3207,12 @@ export declare class SSSearcherWithIndex {
    * Create a new substructure searcher with index.
    */
   constructor();
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   /**
    * Returns an array of the 512 idcodes that are used for computing indexes.
@@ -2886,6 +3259,12 @@ export declare class SSSearcherWithIndex {
   createIndex(molecule: Molecule): number[];
 }
 
+export declare class Transformer {
+  constructor(reactant: Molecule, product: Molecule, name: string);
+  setMolecule(molecule: Molecule, countMode: number): number;
+  applyTransformation(molecule: Molecule, matchNo: number): void;
+}
+
 export declare namespace Util {
   /**
    * Returns the HOSE(Hierarchical Organisation of Spherical Environments) code
@@ -2895,7 +3274,7 @@ export declare namespace Util {
    */
   export function getHoseCodesFromDiastereotopicID(
     diastereotopicID: string,
-    options?: IHoseCodesOptions
+    options?: IHoseCodesOptions,
   ): string[];
 }
 
@@ -2942,6 +3321,12 @@ export declare class DruglikenessPredictor {
   static DRUGLIKENESS_UNKNOWN: number;
 
   /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
+
+  /**
    * Returns the calculated drug likeness as a double.
    * @param molecule
    */
@@ -2961,7 +3346,7 @@ export declare namespace DrugScoreCalculator {
     mSolubility: number,
     mMolweight: number,
     mDruglikeness: number,
-    toxRisks: number[]
+    toxRisks: number[],
   ): number;
 }
 
@@ -2979,6 +3364,12 @@ export declare class ToxicityPredictor {
   static TYPE_REPRODUCTIVE_EFFECTIVE: number;
 
   static RISK_NAMES: string[];
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   /**
    * Returns the calculated risk as an integer.
@@ -3023,14 +3414,20 @@ export declare class ConformerGenerator {
   constructor(seed: number);
 
   /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
+
+  /**
    * Fills all free valences of mol with explicit hydrogens and tries to
-	 * create a reasonable conformer by starting with the most likely torsion set.
-	 * If there are collisions, then less likely torsions are tried to find
-	 * a collision free conformer. If it succeeds, mol receives the modified
-	 * atom coordinates and mol is returned. If the conformer generation fails,
-	 * then null is returned. The torsion strategy used is STRATEGY_ADAPTIVE_RANDOM.
-	 * New 3D-coordinates correctly reflect E/Z and R/S bond/atom parities.
-	 * This is a convenience method that does not require any initialization.
+   * create a reasonable conformer by starting with the most likely torsion set.
+   * If there are collisions, then less likely torsions are tried to find
+   * a collision free conformer. If it succeeds, mol receives the modified
+   * atom coordinates and mol is returned. If the conformer generation fails,
+   * then null is returned. The torsion strategy used is STRATEGY_ADAPTIVE_RANDOM.
+   * New 3D-coordinates correctly reflect E/Z and R/S bond/atom parities.
+   * This is a convenience method that does not require any initialization.
    * @param mol The molecule that will receive new 3D coordinates in place.
    * @returns - Original molecule with new 3D-coordinates or null.
    */
@@ -3038,25 +3435,28 @@ export declare class ConformerGenerator {
 
   /**
    * The `initializeConformers()` method needs to be called before getting individual
-	 * conformers of the same molecule by `getNextConformerAsMolecule()`.
-	 * Open valences of the passed molecule are filled with hydrogen atoms.
-	 * The passed molecule may repeatedly be used as container for a new conformer's atom
-	 * coordinates, if it is passed to getNextConformerAsMolecule().
+   * conformers of the same molecule by `getNextConformerAsMolecule()`.
+   * Open valences of the passed molecule are filled with hydrogen atoms.
+   * The passed molecule may repeatedly be used as container for a new conformer's atom
+   * coordinates, if it is passed to getNextConformerAsMolecule().
    * @param mol - Will be saturated with hydrogen atoms.
    * @param options
    * @returns - `false` if there is a structure problem.
    */
-  initializeConformers(mol: Molecule, options?: IInitializeConformersOptions): boolean;
+  initializeConformers(
+    mol: Molecule,
+    options?: IInitializeConformersOptions,
+  ): boolean;
 
   /**
    * Creates the next random, likely or systematic new(!) conformer of the molecule
-	 * that was passed when calling `initializeConformers()`. A new conformer is one,
-	 * whose combination of torsion angles was not used in a previous conformer
-	 * created by this function since the last call of `initializeConformers()`.
-	 * Parameter mol may be null or recycle the original molecule to receive new 3D coordinates.
-	 * If it is null, then a fresh copy of the original molecule with new atom coordinates is returned.
-	 * Every call of this method creates a new collision-free conformer until the employed torsion set
-	 * strategy decides that it cannot generate any more suitable torsion sets.
+   * that was passed when calling `initializeConformers()`. A new conformer is one,
+   * whose combination of torsion angles was not used in a previous conformer
+   * created by this function since the last call of `initializeConformers()`.
+   * Parameter mol may be null or recycle the original molecule to receive new 3D coordinates.
+   * If it is null, then a fresh copy of the original molecule with new atom coordinates is returned.
+   * Every call of this method creates a new collision-free conformer until the employed torsion set
+   * strategy decides that it cannot generate any more suitable torsion sets.
    * @param mol
    */
   getNextConformerAsMolecule(mol?: Molecule): Molecule | null;
@@ -3068,21 +3468,12 @@ export declare class ConformerGenerator {
 
   /**
    * Calculates the potential count of conformers by multiplying degrees of freedom
-	 * (torsions per rotatable bond & rigid fragment multiplicities).
-	 * Cannot be called before calling `initializeConformers()`.
+   * (torsions per rotatable bond & rigid fragment multiplicities).
+   * Cannot be called before calling `initializeConformers()`.
    */
   getPotentialConformerCount(): number;
 
   /**
-   * With best current knowledge about colliding torsion combinations
-	 * and based on the individual frequencies of currently active torsions
-	 * this method returns the conformers's overall contribution to the
-	 * total set of non colliding conformers.
-   * @returns - This conformer's contribution to all conformers.
-   */
-  getPreviousConformerContribution(): number;
-
-  /** 
    * Returns an iterator of molecule conformers.
    */
   molecules(): IterableIterator<Molecule>;
@@ -3118,12 +3509,22 @@ export declare class ForceFieldMMFF94 {
   static MMFF94SPLUS: 'MMFF94s+';
 
   /**
-   * 
+   *
    * @param molecule - The molecule to construct the forcefield on.
    * @param tablename - The string name for the Tables to be used. Can be `'MMFF94'`, `'MMFF94s'` or `'MMFF94s+'`.
    * @param options
    */
-  constructor(molecule: Molecule, tablename: 'MMFF94' | 'MMFF94s' | 'MMFF94s+', options?: IForceFieldMMFF94Options);
+  constructor(
+    molecule: Molecule,
+    tablename: 'MMFF94' | 'MMFF94s' | 'MMFF94s+',
+    options?: IForceFieldMMFF94Options,
+  );
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   /**
    * Returns the total number of atoms in this force field.
@@ -3157,13 +3558,13 @@ export declare namespace StructureView {
     id: string,
     idcode: string,
     coordinates: string,
-    options?: IDepictorOptions
+    options?: IDepictorOptions,
   ): void;
 
   export function drawMolecule(
     el: HTMLCanvasElement,
     mol: Molecule,
-    options?: IDepictorOptions
+    options?: IDepictorOptions,
   ): void;
 
   export function drawStructureWithText(
@@ -3171,7 +3572,7 @@ export declare namespace StructureView {
     idcode: string,
     coordinates: string,
     options?: IDepictorOptions,
-    atomText?: string[]
+    atomText?: string[],
   ): void;
 }
 
@@ -3190,6 +3591,12 @@ export declare class StructureEditor {
    * @param scale
    */
   static createSVGEditor(id: string, scale: number): StructureEditor;
+
+  /**
+   * Returns the OCL object.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOCL(): any;
 
   getMolecule(): Molecule;
 
@@ -3269,19 +3676,249 @@ export declare class StructureEditor {
   hasFocus(): boolean;
 }
 
-export type AtomHighlightCallback = (atom: number, selected: boolean) => any;
+export type AtomHighlightCallback = (atom: number, selected: boolean) => void;
 
-export type BondHighlightCallback = (bond: number, selected: boolean) => any;
+export type BondHighlightCallback = (bond: number, selected: boolean) => void;
 
 export type ChangeListenerCallback = (
   idcode: string,
-  molecule: Molecule
-) => any;
+  molecule: Molecule,
+) => void;
 
 export declare namespace SVGRenderer {
   export function renderMolecule(
     idCode: string,
     width: number,
-    height: number
+    height: number,
   ): string;
 }
+
+export type OnChangeEventType =
+  | 'molecule'
+  | 'selection'
+  | 'highlight-atom'
+  | 'highlight-bond';
+
+export interface OnChangeEvent {
+  type: OnChangeEventType;
+  isUserEvent: boolean;
+}
+
+export type OnChangeListenerCallback = (event: OnChangeEvent) => void;
+
+export type CanvasEditorMode = 'molecule' | 'reaction';
+
+export interface CanvasEditorOptions {
+  /**
+   * No toolbar and user interactions are ignored.
+   * @default false
+   */
+  readOnly?: boolean;
+  /**
+   * Mode in which the editor will be initialized.
+   * @default 'molecule'
+   */
+  initialMode?: CanvasEditorMode;
+  /**
+   * Whether the editor should be initialized with a fragment.
+   */
+  initialFragment?: boolean;
+}
+
+export declare class CanvasEditor {
+  /**
+   * Create a new canvas-based editor.
+   * @param element - The DOM element in which to create the editor.
+   * @param options
+   */
+  constructor(element: HTMLElement, options?: CanvasEditorOptions);
+
+  /**
+   * Get the current editor mode.
+   */
+  getMode(): CanvasEditorMode;
+
+  /**
+   * Set the molecule to be edited.
+   * Actions in the editor will mutate the molecule object directly.
+   * @param molecule
+   */
+  setMolecule(molecule: Molecule): void;
+
+  /**
+   * Get the molecule being edited.
+   */
+  getMolecule(): Molecule;
+
+  /**
+   * Set the reaction to be edited.
+   * Actions in the editor will mutate the reaction object directly.
+   * @param reaction
+   */
+  setReaction(reaction: Reaction): void;
+
+  /**
+   * Get the reaction being edited.
+   */
+  getReaction(): Reaction;
+
+  /**
+   * Set a callback to be notified when the editor state changes.
+   * @param callback
+   */
+  setOnChangeListener(callback: OnChangeListenerCallback): void;
+
+  /**
+   * Remove the change listener callback.
+   */
+  removeOnChangeListener(): void;
+
+  /**
+   * Clear the editor state.
+   * Same as clicking on the clear button in the toolbar.
+   */
+  clearAll(): void;
+
+  /**
+   * Destroy the editor.
+   * This should be called when the editor is no longer needed to free resources.
+   * All methods will throw an error after calling this.
+   */
+  destroy(): void;
+}
+
+interface CanvasEditorElementModeEnum {
+  MOLECULE: 'molecule';
+  REACTION: 'reaction';
+}
+
+type CanvasEditorElementMode = 'molecule' | 'reaction';
+
+interface CanvasEditorElementConstructor extends CustomElementConstructor {
+  readonly MODE: CanvasEditorElementModeEnum;
+  readonly observedAttributes: ['idcode', 'fragment', 'mode', 'readonly'];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  new (...params: any[]): CanvasEditorElement;
+}
+
+/**
+ * a Webcomponent to wrap CanvasEditor
+ *
+ * The class CanvasEditorElement is not exposed in OCL scope.
+ * You can obtain it from `registerCustomElement`
+ *
+ * Usage:
+ *
+ * In Javascript:
+ * ```js
+ * import {registerCustomElement, Molecule, ReactionEncoder} from 'openchemlib/minimal';
+ *
+ * // register CanvasEditorElement with `openchemlib-editor` tag name
+ * const CanvasEditorElement = registerCustomElement();
+ *
+ * // CanvasEditorElementConstructor.MODE return enums of possible modes
+ * const firstEditor = document.querySelector('openchemlib-editor');
+ * console.assert(firstEditor instanceof CanvasEditorElement);
+ *
+ * firstEditor.setMolecule(Molecule.fromIDCode('ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUh@'));
+ * const molecule = firstEditor.getMolecule();
+ *
+ * firstEditor.setReaction(ReactionEncoder.decode('gJX@@eKU@@ gGQHDHaImfh@!defH@DAIfUVjj`@'));
+ * const reaction = firstEditor.getReaction();
+ *
+ * firstEditor.clearAll();
+ * ```
+ *
+ * In HTML
+ * ```html
+ * <p>Empty editor</p>
+ * <openchemlib-editor></openchemlib-editor>
+ *
+ * <p>Molecule <code>ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUh@</code></p>
+ * <openchemlib-editor
+ *   idcode="ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUh@"
+ * ></openchemlib-editor>
+ *
+ * <p>
+ *   Molecule Fragment
+ *   <code>
+ *     ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUhCyqHiCHy@leBhMEh]B\sa^kp
+ *   </code>
+ * </p>
+ * <openchemlib-editor
+ *   idcode="ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUhCyqHiCHy@leBhMEh]B\sa^kp"
+ *   fragment
+ * ></openchemlib-editor>
+ *
+ * <p>Reaction <code>gJX@@eKU@@ gGQHDHaImfh@!defH@DAIfUVjj`@</code></p>
+ * <openchemlib-editor
+ *   idcode="gJX@@eKU@@ gGQHDHaImfh@!defH@DAIfUVjj`@"
+ *   mode="reaction"
+ * ></openchemlib-editor>
+ *
+ * <p>
+ *   Reaction Fragment
+ *   <code>gJX@@eKU@P gGQHDHaImfhB!defH@DAIfUVjj`B</code>
+ * </p>
+ * <openchemlib-editor
+ *   idcode="gJX@@eKU@P gGQHDHaImfhB!defH@DAIfUVjj`B"
+ *   mode="reaction"
+ *   fragment
+ * ></openchemlib-editor>
+ *
+ * <p>
+ *   Molecule readonly
+ *   <code>ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUh@</code>
+ * </p>
+ * <openchemlib-editor
+ *   readonly
+ *   idcode="ffc`P@H`QxNQQJJIJIZJHiSkQSejB`jFjhhaEqFUh@"
+ * ></openchemlib-editor>
+ * ```
+ *
+ * Styling:
+ * `registerCustomElement()` insertRule to define height to 400px and width to 600px on `openchemlib-editor` element.
+ * This element need to be contained by fixed width and height, or it will grow indefinitely.
+ * So for responsive layout, ensure your container has max-width and max-height
+ * before override the inserted rules to 100% instead fixed units.
+ *
+ * ```css
+ * // need to be into a fixed size container
+ * openchemlib-editor:defined {
+ *  width: 100%;
+ *  height: 100%
+ * }
+ * ```
+ */
+declare interface CanvasEditorElement extends HTMLElement {
+  /**
+   * @defaultValue ''
+   */
+  idcode: string;
+  /**
+   * @defaultValue false
+   */
+  fragment: boolean;
+  /**
+   * @defaultValue 'molecule'
+   */
+  mode: CanvasEditorElementMode;
+  /**
+   * @defaultValue false
+   */
+  readonly: boolean;
+
+  getMolecule(): Molecule;
+  setMolecule(molecule: Molecule): void;
+
+  getReaction(): Reaction;
+  setReaction(reaction: Reaction): void;
+
+  clearAll(): void;
+}
+
+/**
+ * register `<openchemlib-editor>` element with `CanvasEditorElementConstructor` if not already defined.
+ */
+declare function registerCustomElement(): CanvasEditorElementConstructor;

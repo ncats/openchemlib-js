@@ -107,6 +107,11 @@ public class IntArray implements Serializable {
     	
     	hash = h;
     }
+
+
+    public int getCapacity(){
+		return data.length;
+	}
     
     /**
      * Computational expensive operation!
@@ -192,7 +197,19 @@ public class IntArray implements Serializable {
 		
 		return index;
 	}
-	
+
+	public int max(){
+
+		int max = Integer.MIN_VALUE;
+		for (int i = 0; i < size; i++) {
+			if(data[i]>max){
+				max=data[i];
+			}
+		}
+
+		return max;
+	}
+
 	private void facultativeResize(){
 		
 		if(size == data.length){
@@ -255,7 +272,9 @@ public class IntArray implements Serializable {
 		size--;
 		return last;
 	}
-	
+
+
+
 	private void resize(long newlen){
 		
 		if(data.length == newlen){
@@ -435,20 +454,13 @@ public class IntArray implements Serializable {
     }
     
     public static IntArray read(String l){
-    	
     	IntArray ia = new IntArray();
-    	
     	StringTokenizer st = new StringTokenizer(l, ", ;");
-    	
     	while(st.hasMoreTokens()){
-    		String t = st.nextToken();
-    		
+    		String t = st.nextToken().trim();
     		int i = Integer.parseInt(t);
-    		
     		ia.add(i);
-    		
     	}
-    	
     	return ia;
     }
 
@@ -471,7 +483,7 @@ public class IntArray implements Serializable {
 	}
 
 	public static List<Integer> toList(int [] a) {
-		List<Integer> li = new ArrayList<Integer>(a.length);
+		List<Integer> li = new ArrayList<>(a.length);
 
 		for (int i = 0; i < a.length; i++) {
 			li.add(a[i]);

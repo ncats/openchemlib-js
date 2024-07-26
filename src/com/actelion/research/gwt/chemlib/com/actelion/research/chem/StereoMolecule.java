@@ -1,39 +1,44 @@
 /*
-* Copyright (c) 1997 - 2016
-* Actelion Pharmaceuticals Ltd.
-* Gewerbestrasse 16
-* CH-4123 Allschwil, Switzerland
-*
-* All rights reserved.
-*
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*
-* 1. Redistributions of source code must retain the above copyright notice, this
-*    list of conditions and the following disclaimer.
-* 2. Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* 3. Neither the name of the the copyright holder nor the
-*    names of its contributors may be used to endorse or promote products
-*    derived from this software without specific prior written permission.
-*
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-* ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*
-*/
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
 
 package com.actelion.research.chem;
 
-import java.io.*;
+import com.actelion.research.chem.coords.CoordinateInventor;
+
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 
 public class StereoMolecule extends ExtendedMolecule {
     static final long serialVersionUID = 0x2006CAFE;
@@ -69,6 +74,12 @@ public class StereoMolecule extends ExtendedMolecule {
 		}
 
 
+	@Override
+	public void clear() {
+		super.clear();
+		mCanonizer = null;
+		}
+
 	public StereoMolecule getCompactCopy() {
 		StereoMolecule theCopy = new StereoMolecule(mAllAtoms, mAllBonds);
 		copyMolecule(theCopy);
@@ -89,7 +100,7 @@ public class StereoMolecule extends ExtendedMolecule {
 		// the rare case where we have valid parities and no atom coordinates.
 		// Then mCanonizer is null and the parities were read as part of a persistent
 		// molecule. In this case and parity and CIP validity needs to be copied.
-		// Otherwise parity is a perceived property from up/down bonds or 3D atom coords
+		// Otherwise, parity is a perceived property from up/down bonds or 3D atom coords
 		// and should be freshly calculated. 
 		if (mCanonizer != null)
 			destMol.mValidHelperArrays = cHelperNone;
@@ -100,9 +111,9 @@ public class StereoMolecule extends ExtendedMolecule {
 	 * If fragment separation is only needed, if there are multiple fragments, it may be more
 	 * efficient to run this functionality in two steps, e.g.:<br>
 	 * int[] fragmentNo = new int[mol.getAllAtoms()];<br>
-	 * int fragmentCount = getFragmentNumbers(fragmentNo, boolean, boolean);<br>
+	 * int fragmentCount = mol.getFragmentNumbers(fragmentNo, false, false);<br>
 	 * if (fragmentCount > 1) {<br>
-	 *     StereoMolecule[] fragment = getUniqueFragmentsEstimated(int[] fragmentNo, fragmentCount);<br>
+	 *     StereoMolecule[] fragment = mol.getFragments(fragmentNo, fragmentCount);<br>
 	 *     ...<br>
 	 *     }<br>
 	 * @return
@@ -190,6 +201,13 @@ public class StereoMolecule extends ExtendedMolecule {
         if ((required & ~mValidHelperArrays) == 0)
 			return;
 
+        // If we have valid parities, but no atom coordinates, and if we need to run the Canonizer
+		// for extended stereo features, then we need to create 2D-coordinates first to not loose
+		// the given parities, because the Canonizer recalculates parities from coords and up/down bonds.
+		if ((mValidHelperArrays & cHelperParities) != 0
+		 && (mAllAtoms > 1) && mCoordinates[0].equals(mCoordinates[1]))
+			new CoordinateInventor(0).invent(this);
+
         if (mAssignParitiesToNitrogen)
         	required |= cHelperBitIncludeNitrogenParities;
 
@@ -204,13 +222,9 @@ public class StereoMolecule extends ExtendedMolecule {
 			rankBits = cHelperBitSymmetrySimple;
 		    rankMode = Canonizer.CREATE_SYMMETRY_RANK;
 		    }
-		else if ((required & cHelperBitSymmetryDiastereotopic) != 0) {
-			rankBits = cHelperBitSymmetryDiastereotopic;
-            rankMode = Canonizer.CREATE_SYMMETRY_RANK | Canonizer.CONSIDER_DIASTEREOTOPICITY;
-		    }
-		else if ((required & cHelperBitSymmetryEnantiotopic) != 0) {
-			rankBits = cHelperBitSymmetryEnantiotopic;
-            rankMode = Canonizer.CREATE_SYMMETRY_RANK | Canonizer.CONSIDER_ENANTIOTOPICITY;
+		else if ((required & cHelperBitSymmetryStereoHeterotopicity) != 0) {
+			rankBits = cHelperBitSymmetryStereoHeterotopicity;
+            rankMode = Canonizer.CREATE_SYMMETRY_RANK| Canonizer.CONSIDER_STEREOHETEROTOPICITY;
 		    }
 
 		if ((required & cHelperBitIncludeNitrogenParities) != 0) {
@@ -370,6 +384,8 @@ public class StereoMolecule extends ExtendedMolecule {
      */
     public String getIDCode() {
         ensureHelperArrays(cHelperParities);
+        if (mCanonizer == null && (getAtoms() < 2 || !mCoordinates[0].equals(mCoordinates[1])))
+        	mCanonizer = new Canonizer(this);
         return mCanonizer == null ? null : mCanonizer.getIDCode();
         }
 
@@ -383,6 +399,8 @@ public class StereoMolecule extends ExtendedMolecule {
      */
     public String getIDCoordinates() {
         ensureHelperArrays(cHelperParities);
+	    if (mCanonizer == null && (getAtoms() < 2 || !mCoordinates[0].equals(mCoordinates[1])))
+		    mCanonizer = new Canonizer(this);
         return mCanonizer == null ? null : mCanonizer.getEncodedCoordinates();
         }
 
@@ -409,7 +427,7 @@ public class StereoMolecule extends ExtendedMolecule {
         return scCount;
         }
 
-	public int[][] getERSGroupMemberCounts() {
+	public int[][] getESRGroupMemberCounts() {
 		ensureHelperArrays(cHelperParities);
 
 		int[] maxESRGroup = new int[3];
@@ -514,6 +532,8 @@ public class StereoMolecule extends ExtendedMolecule {
 					}
 				}
 			}
+		if (inversion)
+			parity = (parity == Molecule.cAtomParity1) ? Molecule.cAtomParity2 : Molecule.cAtomParity1;
 		}
 	return parity;
 	}
@@ -530,10 +550,10 @@ public class StereoMolecule extends ExtendedMolecule {
               || getAtomESRType(atom) == cESRTypeOr)
              && (!isAtomStereoCenter(atom)
               || getAtomParity(atom) == cAtomParityUnknown))
-                throw new Exception("Members of ESR groups must only be stereo centers with known configuration.");
+                throw new Exception(VALIDATION_ERROR_ESR_CENTER_UNKNOWN);
 
             if ((mAtomFlags[atom] & cAtomFlagStereoProblem) != 0)
-				throw new Exception("Over- or under-specified stereofeature or more than one racemic type bond");
+				throw new Exception(VALIDATION_ERROR_OVER_UNDER_SPECIFIED);
 
 			if ((getAtomParity(atom) == Molecule.cAtomParity1
 			  || getAtomParity(atom) == Molecule.cAtomParity2)
@@ -546,7 +566,7 @@ public class StereoMolecule extends ExtendedMolecule {
 						for (int j=0; j<i; j++)
 							if (!isStereoBond(getConnBond(atom, j), atom))
 								if (bondsAreParallel(angle[i], angle[j]))
-									throw new Exception("Ambiguous configuration at stereo center because of 2 parallel bonds");
+									throw new Exception(VALIDATION_ERROR_AMBIGUOUS_CONFIGURATION);
 				}
 			}
 		}
@@ -564,7 +584,7 @@ public class StereoMolecule extends ExtendedMolecule {
         case cChiralityUnknown:
 			return "unknown chirality";
         case cChiralityRacemic:
-            return "racemate";
+            return "both enantiomers";
         case cChiralityKnownEnantiomer:
             return "this enantiomer";
         case cChiralityUnknownEnantiomer:

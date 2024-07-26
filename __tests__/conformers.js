@@ -24,13 +24,11 @@ describe('ConformerGenerator', () => {
     const gen = new ConformerGenerator(1);
     expect(gen.getPotentialConformerCount()).toBe(1);
     expect(gen.getConformerCount()).toBe(0);
-    expect(gen.getPreviousConformerContribution()).toBe(1);
     gen.initializeConformers(mol);
     expect(gen.getPotentialConformerCount()).toBeGreaterThan(1);
 
     const conf1 = gen.getNextConformerAsMolecule();
     expect(gen.getConformerCount()).toBe(1);
-    expect(gen.getPreviousConformerContribution()).toBeCloseTo(0.155, 2);
     const conf1Molfile = conf1.toMolfile();
     expect(conf1Molfile).toMatchSnapshot();
 
@@ -41,26 +39,6 @@ describe('ConformerGenerator', () => {
 
     expect(conf2).not.toBe(conf1);
     expect(conf2Molfile).not.toBe(conf1Molfile);
-  });
-
-  it('should be random if initialized with 0', () => {
-    const mol = Molecule.fromSmiles('COCCON');
-
-    const gen1 = new ConformerGenerator(0);
-    expect(gen1.getConformerCount()).toBe(0);
-    gen1.initializeConformers(mol);
-    expect(gen1.getConformerCount()).toBe(0);
-    const conf1 = gen1.getNextConformerAsMolecule().toMolfile();
-    expect(gen1.getConformerCount()).toBe(1);
-
-    const gen2 = new ConformerGenerator(0);
-    expect(gen2.getConformerCount()).toBe(0);
-    gen2.initializeConformers(mol);
-    expect(gen2.getConformerCount()).toBe(0);
-    const conf2 = gen2.getNextConformerAsMolecule().toMolfile();
-    expect(gen2.getConformerCount()).toBe(1);
-
-    expect(conf2).not.toBe(conf1);
   });
 
   it('should use and return the passed molecule', () => {
@@ -83,10 +61,10 @@ describe('ConformerGenerator', () => {
     gen.initializeConformers(mol);
 
     const allConformers = [...gen.molecules()];
-    expect(allConformers).toHaveLength(43);
+    expect(allConformers).toHaveLength(26);
 
     // All molecules should be different
-    expect(new Set(allConformers).size).toBe(43);
+    expect(new Set(allConformers).size).toBe(26);
 
     expect(allConformers[0].getAtomZ(0)).not.toBe(allConformers[1].getAtomZ(1));
 

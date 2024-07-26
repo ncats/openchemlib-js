@@ -1,6 +1,6 @@
 package com.actelion.research.gwt.minimal;
 
-import java.awt.geom.Rectangle2D;
+import com.actelion.research.gwt.minimal.MoleculeQueryFeatures;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.Vector;
@@ -8,6 +8,7 @@ import java.util.Vector;
 import com.actelion.research.chem.*;
 import com.actelion.research.chem.contrib.*;
 import com.actelion.research.chem.coords.CoordinateInventor;
+import com.actelion.research.gui.generic.GenericRectangle;
 import com.google.gwt.core.client.JavaScriptObject;
 import jsinterop.annotations.*;
 
@@ -15,7 +16,7 @@ import jsinterop.annotations.*;
 public class JSMolecule {
 
   private static Services services = Services.getInstance();
-  private static Rectangle2D.Double rectangle = new Rectangle2D.Double();
+  private static GenericRectangle rectangle = new GenericRectangle();
 
   private StereoMolecule oclMolecule;
 
@@ -37,12 +38,13 @@ public class JSMolecule {
     this(32, 32, null);
   }
 
-  public static native JSMolecule fromSmiles(String smiles, JavaScriptObject options) throws Exception
+  public static native JSMolecule fromSmiles(String smiles, JavaScriptObject options)
+      throws Exception
   /*-{
   	options = options || {};
-  	var coordinates = !options.noCoordinates;
-  	var stereo = !options.noStereo;
-  	return @com.actelion.research.gwt.minimal.JSMolecule::fromSmiles(Ljava/lang/String;ZZ)(smiles, coordinates, stereo);
+  	var createCoordinates = !options.noCoordinates;
+  	var readStereoFeatures = !options.noStereo;
+  	return @com.actelion.research.gwt.minimal.JSMolecule::fromSmiles(Ljava/lang/String;ZZ)(smiles, createCoordinates, readStereoFeatures);
   }-*/;
 
   public static JSMolecule fromMolfile(String molfile) throws Exception {
@@ -68,22 +70,51 @@ public class JSMolecule {
   		coordinates = true;
   	}
   	if (typeof coordinates === 'boolean') {
-  		mol = @com.actelion.research.gwt.minimal.JSMolecule::fromIDCode(Ljava/lang/String;Z)(idcode, false);
-  		if (coordinates === true) {
-  			mol.@com.actelion.research.gwt.minimal.JSMolecule::inventCoordinates()();
-  		}
+  		mol = @com.actelion.research.gwt.minimal.JSMolecule::fromIDCode(Ljava/lang/String;Z)(idcode, coordinates);
   	} else if(typeof coordinates === 'string') {
   		mol = @com.actelion.research.gwt.minimal.JSMolecule::fromIDCode(Ljava/lang/String;Ljava/lang/String;)(idcode, coordinates);
   	}
   	return mol;
   }-*/;
 
+  public native Object getOCL()
+  /*-{
+    return $wnd.OCL;
+  }-*/;
+
   public String toSmiles() {
+    // we still allow to old code that do not care about stereo features and provide another SMILES
     return new SmilesCreator().generateSmiles(oclMolecule);
   }
 
-  public String toIsomericSmiles(boolean includeAtomMapping) {
-    return new IsomericSmilesCreator(oclMolecule, includeAtomMapping).getSmiles();
+  public native String toIsomericSmiles(JavaScriptObject options)
+  /*-{
+    options = options || {}
+    var createSmarts = options.createSmarts === true;
+    var includeMapping = options.includeMapping === true;
+    var kekulizedOutput = options.kekulizedOutput === true;
+    return this.@com.actelion.research.gwt.minimal.JSMolecule::toIsomericSmilesInternal(ZZZ)(createSmarts, includeMapping, kekulizedOutput);
+  }-*/;
+
+  @JsIgnore
+  public String toIsomericSmilesInternal(boolean createSmarts, boolean includeMapping,
+      boolean kekulizedOutput) {
+    int mode = 0;
+    if (createSmarts) {
+      mode |= IsomericSmilesCreator.MODE_CREATE_SMARTS;
+    }
+    if (includeMapping) {
+      mode |= IsomericSmilesCreator.MODE_INCLUDE_MAPPING;
+    }
+    if (kekulizedOutput) {
+      mode |= IsomericSmilesCreator.MODE_KEKULIZED_OUTPUT;
+    }
+    return new IsomericSmilesCreator(oclMolecule, mode).getSmiles();
+  }
+
+  public String toSmarts() {
+    return new IsomericSmilesCreator(oclMolecule, IsomericSmilesCreator.MODE_CREATE_SMARTS)
+        .getSmiles();
   }
 
   public String toMolfile() {
@@ -102,13 +133,17 @@ public class JSMolecule {
   	//if (!$doc.createElement) {
   	//	throw new Error('Molecule#toSVG cannot be used outside of a browser\'s Window environment');
   	//}
+    if (!width || !height) {
+      throw new Error('Molecule#toSVG requires width and height to be specified');
+    }
   	options = options || {};
   	var factorTextSize = options.factorTextSize || 1;
     var autoCrop = options.autoCrop === true;
     var autoCropMargin = typeof options.autoCropMargin === 'undefined' ? 5 : options.autoCropMargin;
   	var svg =  this.@com.actelion.research.gwt.minimal.JSMolecule::getSVG(IIFZILjava/lang/String;Lcom/google/gwt/core/client/JavaScriptObject;)(width, height, factorTextSize, autoCrop, autoCropMargin, id, options);
+    svg = svg.replace('<style>', '<style> text {font-family: sans-serif;}');
   	if (options.fontWeight) {
-      svg = svg.replace(/font-family=" Helvetica" /g, 'font-family=" Helvetica" font-weight="' + options.fontWeight + '" ');
+      svg = svg.replace(/font-size=/g, 'font-weight="' + options.fontWeight + '" font-size=');
     }
     if (options.strokeWidth) {
      svg = svg.replace(/stroke-width="[^"]+"/g, 'stroke-width="' + options.strokeWidth + '"');
@@ -116,32 +151,56 @@ public class JSMolecule {
     return svg;
   }-*/;
 
-  private String getSVG(int width, int height, float factorTextSize, boolean autoCrop, int autoCropMargin, String id, JavaScriptObject options) {
+  private String getSVG(int width, int height, float factorTextSize, boolean autoCrop,
+      int autoCropMargin, String id, JavaScriptObject options) {
+
+    boolean degenerated = true;
+    for (int i = 0; i < oclMolecule.getAllAtoms() - 1; i++) {
+      if ((oclMolecule.getAtomX(i) != oclMolecule.getAtomX(i + 1))
+          || (oclMolecule.getAtomY(i) != oclMolecule.getAtomY(i + 1))) {
+        degenerated = false;
+        break;
+      }
+    }
+
+    StereoMolecule mol = degenerated ? oclMolecule.getCompactCopy() : oclMolecule;
+    if (degenerated) {
+      new CoordinateInventor(0).invent(mol);
+    }
+
     int mode = Util.getDisplayMode(options);
-    SVGDepictor d = new SVGDepictor(oclMolecule, mode, id);
+    SVGDepictor d = new SVGDepictor(mol, mode, id);
     d.setFactorTextSize(factorTextSize);
-    d.validateView(null, new Rectangle2D.Double(0, 0, width, height), AbstractDepictor.cModeInflateToMaxAVBL);
-    Rectangle2D.Double b = d.getBoundingRect();
+    d.validateView(null, new GenericRectangle(0, 0, width, height),
+        AbstractDepictor.cModeInflateToMaxAVBL);
+    GenericRectangle b = d.getBoundingRect();
     d.paint(null);
     String result = d.toString();
     if (!autoCrop) {
       return result;
     } else {
-      //return result.replaceAll("viewBox", "data-test=\"" + b.x + " " + b.y + " " + b.width + " " + b.height + "\" viewBox");
+      // return result.replaceAll("viewBox", "data-test=\"" + b.x + " " + b.y + " " + b.width + " "
+      // + b.height + "\" viewBox");
       int newWidth = (int) Math.round(b.width + autoCropMargin * 2);
       int newHeight = (int) Math.round(b.height + autoCropMargin * 2);
       int newX = (int) Math.round(b.x - autoCropMargin);
       int newY = (int) Math.round(b.y - autoCropMargin);
-      return result.replaceAll(
-        "width=\"\\d+px\" height=\"\\d+px\" viewBox=\"0 0 \\d+ \\d+\"",
-        "width=\"" + newWidth + "px\" height=\"" + newHeight + "px\" viewBox=\"" + newX + " " + newY + " " + newWidth + " " + newHeight + "\""
-      );
+      return result.replaceAll("width=\"\\d+px\" height=\"\\d+px\" viewBox=\"0 0 \\d+ \\d+\"",
+          "width=\"" + newWidth + "px\" height=\"" + newHeight + "px\" viewBox=\"" + newX + " "
+              + newY + " " + newWidth + " " + newHeight + "\"");
     }
   }
 
   public String getCanonizedIDCode(int flag) {
     Canonizer canonizer = new Canonizer(oclMolecule, flag);
     return canonizer.getIDCode();
+  }
+
+
+
+  public int[] getFinalRanks(int flag) {
+    Canonizer canonizer = new Canonizer(oclMolecule, flag);
+    return canonizer.getFinalRank();
   }
 
   public native JavaScriptObject getIDCodeAndCoordinates()
@@ -219,7 +278,7 @@ public class JSMolecule {
   }
 
   public JavaScriptObject getBounds() {
-    Rectangle2D.Double r = oclMolecule.getBounds(rectangle);
+    GenericRectangle r = oclMolecule.getBounds(rectangle);
     if (r == null)
       return null;
     return getBounds(r.x, r.y, r.width, r.height);
@@ -239,13 +298,11 @@ public class JSMolecule {
   }
 
   @JsIgnore
-  public static JSMolecule fromSmiles(String smiles, boolean ensure2DCoordinates, boolean readStereoFeatures)
-      throws Exception {
+  public static JSMolecule fromSmiles(String smiles, boolean createCoordinates,
+      boolean readStereoFeatures) throws Exception {
+    SmilesParser parser = new SmilesParser();
     JSMolecule mol = new JSMolecule();
-    new SmilesParser().parse(mol.oclMolecule, smiles.getBytes(), false, readStereoFeatures);
-    if (ensure2DCoordinates) {
-      mol.inventCoordinates();
-    }
+    parser.parse(mol.oclMolecule, smiles.getBytes(), createCoordinates, readStereoFeatures);
     return mol;
   }
 
@@ -264,18 +321,23 @@ public class JSMolecule {
     return oclMolecule;
   }
 
+  // coming from Canonizer.java
   public static final int CANONIZER_CREATE_SYMMETRY_RANK = 1;
   public static final int CANONIZER_CONSIDER_DIASTEREOTOPICITY = 2;
   public static final int CANONIZER_CONSIDER_ENANTIOTOPICITY = 4;
-  public static final int CANONIZER_CONSIDER_STEREOHETEROTOPICITY = CANONIZER_CONSIDER_DIASTEREOTOPICITY
-      | CANONIZER_CONSIDER_ENANTIOTOPICITY;
+  public static final int CANONIZER_CONSIDER_STEREOHETEROTOPICITY =
+      CANONIZER_CONSIDER_DIASTEREOTOPICITY | CANONIZER_CONSIDER_ENANTIOTOPICITY;
   public static final int CANONIZER_ENCODE_ATOM_CUSTOM_LABELS = 8;
   public static final int CANONIZER_ENCODE_ATOM_SELECTION = 16;
   public static final int CANONIZER_ASSIGN_PARITIES_TO_TETRAHEDRAL_N = 32;
   public static final int CANONIZER_COORDS_ARE_3D = 64;
   public static final int CANONIZER_CREATE_PSEUDO_STEREO_GROUPS = 128;
   public static final int CANONIZER_DISTINGUISH_RACEMIC_OR_GROUPS = 256;
+  public static final int CANONIZER_TIE_BREAK_FREE_VALENCE_ATOMS = 512;
+  public static final int CANONIZER_ENCODE_ATOM_CUSTOM_LABELS_WITHOUT_RANKING = 1024;
+  public static final int CANONIZER_NEGLECT_ANY_STEREO_INFORMATION = 2048;
 
+  // coming from Molecule.java
   public static final int cMaxAtomicNo = 190;
   public static final int cAtomParityNone = 0x000000;
   public static final int cAtomParity1 = 0x000001;
@@ -305,7 +367,7 @@ public class JSMolecule {
   public static final int cESRTypeOr = 2;
   public static final int cESRMaxGroups = 32;
   public static final int cESRGroupBits = 5;
-  public static final int cAtomQFNoOfBits = 30;
+  public static final int cAtomQFNoOfBits = 46;
   public static final int cAtomQFAromStateBits = 2;
   public static final int cAtomQFAromStateShift = 1;
   public static final int cAtomQFRingStateBits = 4;
@@ -316,56 +378,100 @@ public class JSMolecule {
   public static final int cAtomQFPiElectronShift = 14;
   public static final int cAtomQFNeighbourBits = 5;
   public static final int cAtomQFNeighbourShift = 17;
-  public static final int cAtomQFRingSizeBits = 3;
-  public static final int cAtomQFRingSizeShift = 22;
+  public static final int cAtomQFSmallRingSizeBits = 3;
+  public static final int cAtomQFSmallRingSizeShift = 22;
   public static final int cAtomQFChargeBits = 3;
   public static final int cAtomQFChargeShift = 25;
-  public static final int cAtomQFSimpleFeatures = 0x0E3FC7FE;
-  public static final int cAtomQFNarrowing = 0x0E3FC7FE;
-  public static final int cAtomQFAny = 0x00000001;
-  public static final int cAtomQFAromState = 0x00000006;
-  public static final int cAtomQFAromatic = 0x00000002;
-  public static final int cAtomQFNotAromatic = 0x00000004;
-  public static final int cAtomQFRingState = 0x00000078;
-  public static final int cAtomQFNotChain = 0x00000008;
-  public static final int cAtomQFNot2RingBonds = 0x00000010;
-  public static final int cAtomQFNot3RingBonds = 0x00000020;
-  public static final int cAtomQFNot4RingBonds = 0x00000040;
-  public static final int cAtomQFHydrogen = 0x00000780;
-  public static final int cAtomQFNot0Hydrogen = 0x00000080;
-  public static final int cAtomQFNot1Hydrogen = 0x00000100;
-  public static final int cAtomQFNot2Hydrogen = 0x00000200;
-  public static final int cAtomQFNot3Hydrogen = 0x00000400;
-  public static final int cAtomQFNoMoreNeighbours = 0x00000800;
-  public static final int cAtomQFMoreNeighbours = 0x00001000;
-  public static final int cAtomQFMatchStereo = 0x00002000;
-  public static final int cAtomQFPiElectrons = 0x0001C000;
-  public static final int cAtomQFNot0PiElectrons = 0x00004000;
-  public static final int cAtomQFNot1PiElectron = 0x00008000;
-  public static final int cAtomQFNot2PiElectrons = 0x00010000;
-  public static final int cAtomQFNeighbours = 0x003E0000; // these QF refer to non-H neighbours
-  public static final int cAtomQFNot0Neighbours = 0x00020000;
-  public static final int cAtomQFNot1Neighbour = 0x00040000;
-  public static final int cAtomQFNot2Neighbours = 0x00080000;
-  public static final int cAtomQFNot3Neighbours = 0x00100000;
-  public static final int cAtomQFNot4Neighbours = 0x00200000; // this is not 4 or more neighbours
-  public static final int cAtomQFRingSize = 0x01C00000;
-  public static final int cAtomQFCharge = 0x0E000000;
-  public static final int cAtomQFNotChargeNeg = 0x02000000;
-  public static final int cAtomQFNotCharge0 = 0x04000000;
-  public static final int cAtomQFNotChargePos = 0x08000000;
-  public static final int cAtomQFFlatNitrogen = 0x10000000; // currently only used in TorsionDetail
-  public static final int cAtomQFExcludeGroup = 0x20000000; // these atoms must not exist in SS-matches
+  public static final int cAtomQFRxnParityBits = 2;
+  public static final int cAtomQFRxnParityShift = 30;
+  public static final int cAtomQFNewRingSizeBits = 7;
+  public static final int cAtomQFNewRingSizeShift = 32;
+  public static final int cAtomQFENeighbourBits = 5;
+  public static final int cAtomQFENeighbourShift = 39;
+  public static final int cAtomQFStereoStateBits = 2;
+  public static final int cAtomQFStereoStateShift = 44;
+  public static final long cAtomQFSimpleFeatures = 0x00007F800E3FC7FEL;
+  public static final long cAtomQFNarrowing = 0x00007FFF0FFFFFFEL;
+  public static final long cAtomQFAny = 0x00000001;
+  public static final long cAtomQFAromState = 0x0000400000000006L;
+  public static final long cAtomQFAromatic = 0x00000002;
+  public static final long cAtomQFNotAromatic = 0x00000004;
+  public static final long cAtomQFRingState = 0x00000078;
+  public static final long cAtomQFNotChain = 0x00000008;
+  public static final long cAtomQFNot2RingBonds = 0x00000010;
+  public static final long cAtomQFNot3RingBonds = 0x00000020;
+  public static final long cAtomQFNot4RingBonds = 0x00000040;
+  public static final long cAtomQFHydrogen = 0x00000780;
+  public static final long cAtomQFNot0Hydrogen = 0x00000080;
+  public static final long cAtomQFNot1Hydrogen = 0x00000100;
+  public static final long cAtomQFNot2Hydrogen = 0x00000200;
+  public static final long cAtomQFNot3Hydrogen = 0x00000400;
+  public static final long cAtomQFNoMoreNeighbours = 0x00000800;
+  public static final long cAtomQFMoreNeighbours = 0x00001000;
+  public static final long cAtomQFMatchStereo = 0x00002000;
+  public static final long cAtomQFPiElectrons = 0x0001C000;
+  public static final long cAtomQFNot0PiElectrons = 0x00004000;
+  public static final long cAtomQFNot1PiElectron = 0x00008000;
+  public static final long cAtomQFNot2PiElectrons = 0x00010000;
+  public static final long cAtomQFNeighbours = 0x003E0000; // these QF refer to non-H neighbours
+  public static final long cAtomQFNot0Neighbours = 0x00020000;
+  public static final long cAtomQFNot1Neighbour = 0x00040000;
+  public static final long cAtomQFNot2Neighbours = 0x00080000;
+  public static final long cAtomQFNot3Neighbours = 0x00100000;
+  public static final long cAtomQFNot4Neighbours = 0x00200000; // this is not 4-or-more neighbours
+  public static final long cAtomQFSmallRingSize = 0x01C00000; // legacy: used to just define the
+                                                              // smallest ring an atom is member of
+  public static final long cAtomQFCharge = 0x0E000000;
+  public static final long cAtomQFNotChargeNeg = 0x02000000;
+  public static final long cAtomQFNotCharge0 = 0x04000000;
+  public static final long cAtomQFNotChargePos = 0x08000000;
+  public static final long cAtomQFFlatNitrogen = 0x0000000010000000L; // Currently, only used in
+                                                                      // TorsionDetail
+  public static final long cAtomQFExcludeGroup = 0x0000000020000000L; // These atoms must not exist
+                                                                      // in SS-matches
+  public static final long cAtomQFRxnParityHint = 0x00000000C0000000L; // Retain,invert,racemise
+                                                                       // configuration in reaction
+  public static final long cAtomQFRxnParityRetain = 0x0000000040000000L;
+  public static final long cAtomQFRxnParityInvert = 0x0000000080000000L;
+  public static final long cAtomQFRxnParityRacemize = 0x00000000C0000000L;
+  public static final long cAtomQFNewRingSize = 0x0000007F00000000L;
+  public static final long cAtomQFRingSize0 = 0x0000000100000000L;
+  public static final long cAtomQFRingSize3 = 0x0000000200000000L;
+  public static final long cAtomQFRingSize4 = 0x0000000400000000L;
+  public static final long cAtomQFRingSize5 = 0x0000000800000000L;
+  public static final long cAtomQFRingSize6 = 0x0000001000000000L;
+  public static final long cAtomQFRingSize7 = 0x0000002000000000L;
+  public static final long cAtomQFRingSizeLarge = 0x0000004000000000L;
+  public static final long cAtomQFENeighbours = 0x00000F8000000000L;
+  public static final long cAtomQFNot0ENeighbours = 0x0000008000000000L;
+  public static final long cAtomQFNot1ENeighbour = 0x0000010000000000L;
+  public static final long cAtomQFNot2ENeighbours = 0x0000020000000000L;
+  public static final long cAtomQFNot3ENeighbours = 0x0000040000000000L;
+  public static final long cAtomQFNot4ENeighbours = 0x0000080000000000L;
+  public static final long cAtomQFStereoState = 0x0000300000000000L;
+  public static final long cAtomQFIsStereo = 0x0000100000000000L;
+  public static final long cAtomQFIsNotStereo = 0x0000200000000000L;
+  public static final long cAtomQFHeteroAromatic = 0x0000400000000000L;
+
   public static final int cBondTypeSingle = 0x00000001;
   public static final int cBondTypeDouble = 0x00000002;
   public static final int cBondTypeTriple = 0x00000004;
-  public static final int cBondTypeDown = 0x00000009;
-  public static final int cBondTypeUp = 0x00000011;
-  public static final int cBondTypeCross = 0x0000001A;
+  public static final int cBondTypeQuadruple = 0x00000008;
+  public static final int cBondTypeQuintuple = 0x00000010;
   public static final int cBondTypeMetalLigand = 0x00000020;
   public static final int cBondTypeDelocalized = 0x00000040;
-  public static final int cBondTypeDeleted = 0x00000080;
-  public static final int cBondTypeIncreaseOrder = 0x0000007F;
+  public static final int cBondTypeDown = 0x00000081;
+  public static final int cBondTypeUp = 0x00000101;
+  public static final int cBondTypeCross = 0x00000182;
+  public static final int cBondTypeDeleted = 0x00000200;
+  public static final int cBondTypeIncreaseOrder = 0x000001FF;
+
+  public static final int cBondTypeMaskSimple = 0x0000007F; // masks
+  public static final int cBondTypeMaskStereo = 0x00000180;
+
+  protected static final int cBondFlagsHelper2 = 0x000002C0;
+  protected static final int cBondFlagsHelper3 = 0x0000003F;
+
   public static final int cBondParityNone = 0x00000000;
   public static final int cBondParityEor1 = 0x00000001;
   public static final int cBondParityZor2 = 0x00000002;
@@ -374,58 +480,75 @@ public class JSMolecule {
   public static final int cBondCIPParityEorP = 0x00000001;
   public static final int cBondCIPParityZorM = 0x00000002;
   public static final int cBondCIPParityProblem = 0x00000003;
-  public static final int cBondQFNoOfBits = 21;
+  public static final int cBondQFNoOfBits = 23;
   public static final int cBondQFBondTypesBits = 5;
   public static final int cBondQFBondTypesShift = 0;
+  public static final int cBondQFRareBondTypesBits = 2;
+  public static final int cBondQFRareBondTypesShift = 5;
   public static final int cBondQFRingStateBits = 2;
-  public static final int cBondQFRingStateShift = 5;
+  public static final int cBondQFRingStateShift = 7;
   public static final int cBondQFBridgeBits = 8;
-  public static final int cBondQFBridgeShift = 7;
+  public static final int cBondQFBridgeShift = 9;
   public static final int cBondQFBridgeMinBits = 4;
-  public static final int cBondQFBridgeMinShift = 7;
+  public static final int cBondQFBridgeMinShift = 9;
   public static final int cBondQFBridgeSpanBits = 4;
-  public static final int cBondQFBridgeSpanShift = 11;
+  public static final int cBondQFBridgeSpanShift = 13;
   public static final int cBondQFRingSizeBits = 3;
-  public static final int cBondQFRingSizeShift = 15;
+  public static final int cBondQFRingSizeShift = 17;
   public static final int cBondQFAromStateBits = 2;
-  public static final int cBondQFAromStateShift = 19;
-  public static final int cBondQFAllFeatures = 0x001FFFFF;
-  public static final int cBondQFSimpleFeatures = 0x0018007F;
-  public static final int cBondQFNarrowing = 0x00180060;
-  public static final int cBondQFBondTypes = 0x0000001F;
+  public static final int cBondQFAromStateShift = 21;
+  public static final int cBondQFAllFeatures = 0x00FFFFFF;
+  public static final int cBondQFSimpleFeatures = 0x006001FF;
+  public static final int cBondQFNarrowing = 0x00600180;
+  public static final int cBondQFBondTypes = 0x0000001F; // original 5 bond types for idcode
+  public static final int cBondQFRareBondTypes = 0x00000060; // using OR logic for all 7 bond types
   public static final int cBondQFSingle = 0x00000001;
   public static final int cBondQFDouble = 0x00000002;
   public static final int cBondQFTriple = 0x00000004;
   public static final int cBondQFDelocalized = 0x00000008;
   public static final int cBondQFMetalLigand = 0x00000010;
-  public static final int cBondQFRingState = 0x00000060;
-  public static final int cBondQFNotRing = 0x00000020;
-  public static final int cBondQFRing = 0x00000040;
-  public static final int cBondQFBridge = 0x00007F80;
-  public static final int cBondQFBridgeMin = 0x00000780;
-  public static final int cBondQFBridgeSpan = 0x00007800;
-  public static final int cBondQFRingSize = 0x00038000;
-  public static final int cBondQFMatchStereo = 0x00040000;
-  public static final int cBondQFAromState = 0x00180000;
-  public static final int cBondQFAromatic = 0x00080000;
-  public static final int cBondQFNotAromatic = 0x00100000;
+  public static final int cBondQFQuadruple = 0x00000020;
+  public static final int cBondQFQuintuple = 0x00000040;
+  public static final int cBondQFRingState = 0x00000180;
+  public static final int cBondQFNotRing = 0x00000080;
+  public static final int cBondQFRing = 0x00000100;
+  public static final int cBondQFBridge = 0x0001FE00;
+  public static final int cBondQFBridgeMin = 0x00001E00;
+  public static final int cBondQFBridgeSpan = 0x0001E000;
+  public static final int cBondQFRingSize = 0x000E0000;
+  public static final int cBondQFMatchStereo = 0x00100000;
+  public static final int cBondQFAromState = 0x00600000;
+  public static final int cBondQFAromatic = 0x00200000;
+  public static final int cBondQFNotAromatic = 0x00400000;
+  public static final int cBondQFMatchFormalOrder = 0x00800000; // matches the formal bond order
+                                                                // considering also cBondQFBondTypes
+                                                                // in query
+
+  public static final int cHelperAll = 0x00FF;
   public static final int cHelperNone = 0x0000;
   public static final int cHelperBitNeighbours = 0x0001;
-  public static final int cHelperBitRings = 0x0002;
-  public static final int cHelperBitParities = 0x0004;
-  public static final int cHelperBitCIP = 0x0008;
-  public static final int cHelperBitSymmetrySimple = 0x0010;
-  public static final int cHelperBitSymmetryDiastereotopic = 0x0020;
-  public static final int cHelperBitSymmetryEnantiotopic = 0x0040;
+  public static final int cHelperBitRingsSimple = 0x0002; // small rings only, no aromaticity, no
+                                                          // allylic nor stabilized flags
+  public static final int cHelperBitRings = 0x0004;
+  public static final int cHelperBitParities = 0x0008;
+  public static final int cHelperBitCIP = 0x0010;
+
+  public static final int cHelperBitSymmetrySimple = 0x0020;
+  public static final int cHelperBitSymmetryStereoHeterotopicity = 0x0040;
   public static final int cHelperBitIncludeNitrogenParities = 0x0080;
-  public static final int cHelperBitsStereo = 0x00FC;
+
+  public static final int cHelperBitsStereo = 0x00F8;
+
   public static final int cHelperNeighbours = cHelperBitNeighbours;
-  public static final int cHelperRings = cHelperNeighbours | cHelperBitRings;
+  public static final int cHelperRingsSimple = cHelperNeighbours | cHelperBitRingsSimple;
+  public static final int cHelperRings = cHelperRingsSimple | cHelperBitRings;
   public static final int cHelperParities = cHelperRings | cHelperBitParities;
   public static final int cHelperCIP = cHelperParities | cHelperBitCIP;
+
   public static final int cHelperSymmetrySimple = cHelperCIP | cHelperBitSymmetrySimple;
-  public static final int cHelperSymmetryDiastereotopic = cHelperCIP | cHelperBitSymmetryDiastereotopic;
-  public static final int cHelperSymmetryEnantiotopic = cHelperCIP | cHelperBitSymmetryEnantiotopic;
+  public static final int cHelperSymmetryStereoHeterotopicity =
+      cHelperCIP | cHelperBitSymmetryStereoHeterotopicity;
+
   public static final int cChiralityIsomerCountMask = 0x00FFFF;
   public static final int cChiralityUnknown = 0x000000;
   public static final int cChiralityNotChiral = 0x010000;
@@ -434,22 +557,44 @@ public class JSMolecule {
   public static final int cChiralityKnownEnantiomer = 0x040000;
   public static final int cChiralityUnknownEnantiomer = 0x050000;
   public static final int cChiralityEpimers = 0x060000;
-  public static final int cChiralityDiastereomers = 0x070000; // this has added the number of diastereomers
+  public static final int cChiralityDiastereomers = 0x070000; // this has added the number of
+                                                              // diastereomers
+
+  public static final double cDefaultAVBL = 24.0;
+
   public static final int cMoleculeColorDefault = 0;
   public static final int cMoleculeColorNeutral = 1;
-  public static final String cAtomLabel[] = { "?", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg",
-      "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga",
-      "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn",
-      "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm",
-      "Yb", "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra",
-      "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "??", "??", "??", "??",
-      "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??",
-      "??", "??", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11", // R4 to R16 do not belong to the MDL set
-      "R12", "R13", "R14", "R15", "R16", "R1", "R2", "R3", "A", "A1", "A2", "A3", "??", "??", "D", "T", "X", "R", "H2",
-      "H+", "Nnn", "HYD", "Pol", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "??", "Ala", "Arg", "Asn",
-      "Asp", "Cys", "Gln", "Glu", "Gly", "His", "Ile", "Leu", "Lys", "Met", "Phe", "Pro", "Ser", "Thr", "Trp", "Tyr",
-      "Val" };
-  public static final short cRoundedMass[] = { 0, 1, 4, 7, 9, 11, 12, // H ,He ,Li ,Be ,B ,C ,
+
+  public static final int cPseudoAtomsHydrogenIsotops = 1; // D and T
+  public static final int cPseudoAtomsRGroups = 2; // R1 to R16
+  public static final int cPseudoAtomsAGroups = 4; // A1,A2,A3
+  public static final int cPseudoAtomR = 8; // R
+  public static final int cPseudoAtomA = 16; // A
+  public static final int cPseudoAtomX = 32; // X
+  public static final int cPseudoAtomsAminoAcids = 64; // all 20 amino acid 3-letter codes
+  public static final int cPseudoAtomPolymer = 128; // Pol
+  public static final int cPseudoAtomAttachmentPoint = 256; // ?
+  public static final int cPseudoAtomsAll = 511; // all of above
+
+  public static final int cDefaultAllowedPseudoAtoms =
+      cPseudoAtomsHydrogenIsotops | cPseudoAtomsAminoAcids | cPseudoAtomAttachmentPoint;
+
+  public static final String[] cAtomLabel = {"?", "H", "He", "Li", "Be", "B", "C", "N", "O", "F",
+      "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca", "Sc", "Ti", "V", "Cr", "Mn",
+      "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr", "Nb",
+      "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe", "Cs", "Ba", "La",
+      "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu", "Hf",
+      "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra",
+      "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr", "Rf",
+      "Db", "Sg", "Bh", "Hs", "Mt", "Ds", "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og", "??",
+      "??", "??", "??", "??", "??", "??", "??", "??", "??", "R4", "R5", "R6", "R7", "R8", "R9",
+      "R10", "R11", // R4 to R16 do not belong to the MDL set
+      "R12", "R13", "R14", "R15", "R16", "R1", "R2", "R3", "A", "A1", "A2", "A3", "??", "??", "D",
+      "T", "X", "R", "H2", "H+", "Nnn", "HYD", "Pol", "??", "??", "??", "??", "??", "??", "??",
+      "??", "??", "??", "??", "Ala", "Arg", "Asn", "Asp", "Cys", "Gln", "Glu", "Gly", "His", "Ile",
+      "Leu", "Lys", "Met", "Phe", "Pro", "Ser", "Thr", "Trp", "Tyr", "Val"};
+
+  public static final short[] cRoundedMass = {0, 1, 4, 7, 9, 11, 12, // H ,He ,Li ,Be ,B ,C ,
       14, 16, 19, 20, 23, 24, // N , O ,F ,Ne ,Na ,Mg ,
       27, 28, 31, 32, 35, 40, // Al ,Si ,P ,S ,Cl ,Ar ,
       39, 40, 45, 48, 51, 52, // K ,Ca ,Sc ,Ti ,V ,Cr ,
@@ -462,13 +607,13 @@ public class JSMolecule {
       0, 152, 153, 158, 159, 164, // Pm ,Sm ,Eu ,Gd ,Tb ,Dy ,
       165, 166, 169, 174, 175, 180, // Ho ,Er ,Tm ,Yb ,Lu ,Hf ,
       181, 184, 187, 192, 193, 195, // Ta ,W , Re ,Os ,Ir ,Pt ,
-      197, 202, 205, 208, 209, 0, // Au ,Hg ,Tl ,Pb ,Bi ,Po ,
-      0, 0, 0, 0, 0, 232, // At ,Rn ,Fr ,Ra ,Ac ,Th ,
-      0, 238, 0, 0, 0, 0, // Pa ,U , Np ,Pu ,Am ,Cm ,
-      0, 0, 0, 0, 0, 0, // Bk ,Cf ,Es ,Fm ,Md ,No ,
-      0, 0, 0, 0, 0, 0, // Lr ,?? ,?? ,?? ,?? ,?? ,
-      0, 0, 0, 0, 0, 0, // ?? ,?? ,?? ,?? ,?? ,?? ,
-      0, 0, 0, 0, 0, 0, // ?? ,?? ,?? ,?? ,?? ,?? ,
+      197, 202, 205, 208, 209, 209, // Au ,Hg ,Tl ,Pb ,Bi ,Po ,
+      210, 222, 223, 226, 227, 232, // At ,Rn ,Fr ,Ra ,Ac ,Th ,
+      231, 238, 237, 244, 243, 247, // Pa ,U , Np ,Pu ,Am ,Cm ,
+      247, 251, 252, 257, 258, 259, // Bk ,Cf ,Es ,Fm ,Md ,No ,
+      262, 267, 268, 271, 270, 277, // Lr ,Rf ,Db ,Sg ,Bh ,Hs ,
+      276, 281, 281, 283, 285, 289, // Mt ,Ds ,Rg ,Cn ,Nh ,Fl ,
+      289, 293, 294, 294, 0, 0, // Mc ,Lv ,Ts ,Og ,?? ,?? ,
       0, 0, 0, 0, 0, 0, // ?? ,?? ,?? ,?? ,?? ,?? ,
       0, 0, 0, 0, 0, 0, // ?? ,?? ,R4 ,R5 ,R6 ,R7 ,
       0, 0, 0, 0, 0, 0, // R8 ,R9 ,R10,R11,R12,R13,
@@ -480,19 +625,82 @@ public class JSMolecule {
       0, 0, 71, 156, 114, 115, // ?? ,?? ,Ala,Arg,Asn,Asp,
       103, 128, 129, 57, 137, 113, // Cys,Gln,Glu,Gly,His,Ile,
       113, 128, 131, 147, 97, 87, // Leu,Lys,Met,Phe,Pro,Ser,
-      101, 186, 163, 99 }; // Thr,Trp,Tyr,Val,
-  public static final int cDefaultAtomValence = 6;
-  public static final float FISCHER_PROJECTION_LIMIT = (float) Math.PI / 36;
-  public static final float STEREO_ANGLE_LIMIT = (float) Math.PI / 36; // 5 degrees
-  public static final int cMaxConnAtoms = 16; // ExtendedMolecule is not restricted anymore
-  public static final String VALIDATION_ERROR_ESR_CENTER_UNKNOWN = "Members of ESR groups must only be stereo centers with known configuration.";
-  public static final String VALIDATION_ERROR_OVER_UNDER_SPECIFIED = "Over- or under-specified stereo feature or more than one racemic type bond";
-  public static final String VALIDATION_ERROR_AMBIGUOUS_CONFIGURATION = "Ambiguous configuration at stereo center because of 2 parallel bonds";
-  public static final String[] VALIDATION_ERRORS_STEREO = { VALIDATION_ERROR_ESR_CENTER_UNKNOWN,
-      VALIDATION_ERROR_OVER_UNDER_SPECIFIED, VALIDATION_ERROR_AMBIGUOUS_CONFIGURATION };
+      101, 186, 163, 99}; // Thr,Trp,Tyr,Val,
 
-  public static int getAtomicNoFromLabel(String atomLabel) {
-    return StereoMolecule.getAtomicNoFromLabel(atomLabel);
+  public static final int cDefaultAtomValence = 6;
+  public static final byte[][] cAtomValence =
+      {null, {1}, {0}, {1}, {2}, {3}, {4}, {3}, {2}, {1}, {0}, // H to Ne
+          {1}, {2}, {3}, {4}, {3, 5}, {2, 4, 6}, {1, 3, 5, 7}, {0}, // Na to Ar
+          {1}, {2}, null, null, null, null, null, null, null, null, // K to Ni
+          null, null, {2, 3}, {2, 4}, {3, 5}, {2, 4, 6}, {1, 3, 5, 7}, {0, 2}, // Cu to Kr
+          {1}, {2}, null, null, null, null, null, null, null, null, // Rb to Pd
+          null, null, {1, 2, 3}, {2, 4}, {3, 5}, {2, 4, 6}, {1, 3, 5, 7}, // Ag to I
+          {0, 2, 4, 6}, {1}, {2}, // Xe to Ba
+          null, null, null, null, null, null, null, null, null, null, // La to Dy
+          null, null, null, null, null, null, null, null, null, null, // Ho to Os
+          null, null, null, null, null, null, null, null, null, null, // Ir to Rn
+          null, null, null, null, null, null, null, null, null, null, // Fr to Cm
+          null, null, null, null, null, null, null, null, null, null, // Bk to Sg
+          null, null, null, null, null, null, null, null, null, null, // Bh to Lv
+          null, null, null, null, null, null, null, null, null, null, // Ts to 126
+          null, null, null, null, null, null, null, null, null, null, // 127 to R5
+          null, null, null, null, null, null, null, null, null, null, // R6 to R15
+          null, null, null, null, null, null, null, null, null, null, // R16 to 156
+          null, null, null, null, null, null, null, null, null, null, // D to 166
+          null, null, null, null, // 167 to 170
+          {2}, {2}, {2}, {2}, {3}, {2}, {2}, {2}, {2}, {2}, // Ala to Ile
+          {2}, {2}, {2}, {2}, {2}, {2}, {2}, {2}, {2}, {2}, // Leu to Val
+      };
+
+  // Taken from
+  // http://www.cabrillo.edu/~aromero/Common%20Files/Periodic%20Table%20(Common%20Ionic%20Charges).pdf
+  public static final byte[][] cCommonOxidationState = {null, {1}, null, {1}, {2}, null, null, // H,
+                                                                                               // He,
+                                                                                               // Li,
+                                                                                               // Be,
+                                                                                               // B,
+                                                                                               // C,
+      {-3}, {-2}, {-1}, null, {1}, {2}, // N, O, F, Ne, Na, Mg,
+      {3}, null, {-3}, {-2}, {-1}, null, // Al, Si, P, S, Cl, Ar,
+      {1}, {2}, {3}, {2, 3, 4}, {2, 3, 4, 5}, {2, 3, 6}, // K, Ca, Sc, Ti, V, Cr,
+      {2, 3, 4, 7}, {2, 3}, {2, 3}, {2, 3}, {1, 2}, {2}, // Mn, Fe, Co, Ni, Cu, Zn,
+      {3}, {2, 4}, {-3, 3, 5}, {-2}, {-1}, null, // Ga, Ge, As, Se, Br, Kr,
+      {1}, {2}, {3}, {4}, {3, 5}, {6}, // Rb, Sr, Y, Zr, Nb, Mo,
+      {4, 6, 7}, {3}, {3}, {2, 4}, {1}, {2}, // Tc, Ru, Rh, Pd, Ag, Cd,
+      {3}, {2, 4}, {-3, 3, 5}, {-2, 4, 6}, {-1}, null, // In, Sn, Sb, Te, I, Xe,
+      {1}, {2}, {3}, {3, 4}, {3}, {3}, // Cs, Ba, La ,Ce, Pr, Nd,
+      {3}, {2, 3}, {2, 3}, {3}, {3}, {3}, // Pm, Sm, Eu, Gd, Tb, Dy,
+      {3}, {3}, {3}, {2, 3}, {3}, {4}, // Ho, Er, Tm, Yb, Lu, Hf,
+      {5}, {6}, {4, 6, 7}, {3, 4}, {3, 4}, {2, 4}, // Ta, W, Re, Os, Ir, Pt,
+      {1, 3}, {1, 2}, {1, 3}, {2, 4}, {3, 5}, {-2, 2, 4}, // Au, Hg, Tl, Pb, Bi, Po,
+      {-1, 1}, null, {1}, {2}, {3}, {4}, // At, Rn, Fr, Ra, Ac, Th,
+      {4, 5}, {3, 4, 5, 6}, {3, 4, 5, 6}, {3, 4, 5, 6}, {3, 4, 5, 6}, // Pa, U, Np, Pu, Am,
+      {3}, {3, 4}, {3}, {3}, {3}, {2, 3}, // Cm, Bk, Cf, Es, Fm, Md,
+      {2, 3}, {3} // No, Lr
+  };
+
+  // coming from ExtendedMolecule.java
+  public static final float FISCHER_PROJECTION_LIMIT = (float) Math.PI / 36;
+  public static final float FISCHER_PROJECTION_RING_LIMIT = 24;
+
+  public static final float STEREO_ANGLE_LIMIT = (float) Math.PI / 36; // 5 degrees
+
+  public static final int cMaxConnAtoms = 16; // ExtendedMolecule is not restricted anymore
+                                              // However, this is a suggestion for editors and other
+                                              // classes
+
+  // coming from StereoMolecule.java
+  public static final String VALIDATION_ERROR_ESR_CENTER_UNKNOWN =
+      "Members of ESR groups must only be stereo centers with known configuration.";
+  public static final String VALIDATION_ERROR_OVER_UNDER_SPECIFIED =
+      "Over- or under-specified stereo feature or more than one racemic type bond";
+  public static final String VALIDATION_ERROR_AMBIGUOUS_CONFIGURATION =
+      "Ambiguous configuration at stereo center because of 2 parallel bonds";
+  public static final String[] VALIDATION_ERRORS_STEREO = {VALIDATION_ERROR_ESR_CENTER_UNKNOWN,
+      VALIDATION_ERROR_OVER_UNDER_SPECIFIED, VALIDATION_ERROR_AMBIGUOUS_CONFIGURATION};
+
+  public static int getAtomicNoFromLabel(String atomLabel, int allowedPseudoAtomGroups) {
+    return StereoMolecule.getAtomicNoFromLabel(atomLabel, allowedPseudoAtomGroups);
   }
 
   public static double getAngle(double x1, double y1, double x2, double y2) {
@@ -515,8 +723,8 @@ public class JSMolecule {
     return oclMolecule.addBond(atom1, atom2);
   }
 
-  public boolean addOrChangeAtom(double x, double y, int atomicNo, int mass, int abnormalValence, int radical,
-      String customLabel) {
+  public boolean addOrChangeAtom(double x, double y, int atomicNo, int mass, int abnormalValence,
+      int radical, String customLabel) {
     return oclMolecule.addOrChangeAtom(x, y, atomicNo, mass, abnormalValence, radical, customLabel);
   }
 
@@ -524,16 +732,16 @@ public class JSMolecule {
     return oclMolecule.addOrChangeBond(atm1, atm2, type);
   }
 
-  public boolean addRing(double x, double y, int ringSize, boolean aromatic) {
-    return oclMolecule.addRing(x, y, ringSize, aromatic);
+  public boolean addRing(double x, double y, int ringSize, boolean aromatic, double bondLength) {
+    return oclMolecule.addRing(x, y, ringSize, aromatic, bondLength);
   }
 
-  public boolean addRingToAtom(int atom, int ringSize, boolean aromatic) {
-    return oclMolecule.addRingToAtom(atom, ringSize, aromatic);
+  public boolean addRingToAtom(int atom, int ringSize, boolean aromatic, double bondLength) {
+    return oclMolecule.addRingToAtom(atom, ringSize, aromatic, bondLength);
   }
 
-  public boolean addRingToBond(int bond, int ringSize, boolean aromatic) {
-    return oclMolecule.addRingToBond(bond, ringSize, aromatic);
+  public boolean addRingToBond(int bond, int ringSize, boolean aromatic, double bondLength) {
+    return oclMolecule.addRingToBond(bond, ringSize, aromatic, bondLength);
   }
 
   public boolean changeAtom(int atom, int atomicNo, int mass, int abnormalValence, int radical) {
@@ -560,14 +768,16 @@ public class JSMolecule {
     oclMolecule.copyMolecule(destMol.getStereoMolecule());
   }
 
-  public int copyAtom(JSMolecule destMol, int sourceAtom, int esrGroupOffsetAND, int esrGroupOffsetOR) {
-    return oclMolecule.copyAtom(destMol.getStereoMolecule(), sourceAtom, esrGroupOffsetAND, esrGroupOffsetOR);
+  public int copyAtom(JSMolecule destMol, int sourceAtom, int esrGroupOffsetAND,
+      int esrGroupOffsetOR) {
+    return oclMolecule.copyAtom(destMol.getStereoMolecule(), sourceAtom, esrGroupOffsetAND,
+        esrGroupOffsetOR);
   }
 
-  public int copyBond(JSMolecule destMol, int sourceBond, int esrGroupOffsetAND, int esrGroupOffsetOR, int[] atomMap,
-      boolean useBondTypeDelocalized) {
-    return oclMolecule.copyBond(destMol.getStereoMolecule(), sourceBond, esrGroupOffsetAND, esrGroupOffsetOR, atomMap,
-        useBondTypeDelocalized);
+  public int copyBond(JSMolecule destMol, int sourceBond, int esrGroupOffsetAND,
+      int esrGroupOffsetOR, int[] atomMap, boolean useBondTypeDelocalized) {
+    return oclMolecule.copyBond(destMol.getStereoMolecule(), sourceBond, esrGroupOffsetAND,
+        esrGroupOffsetOR, atomMap, useBondTypeDelocalized);
   }
 
   public void copyMoleculeProperties(JSMolecule destMol) {
@@ -580,6 +790,14 @@ public class JSMolecule {
 
   public int renumberESRGroups(int type) {
     return oclMolecule.renumberESRGroups(type);
+  }
+
+  public void swapAtoms(int atom1, int atom2) {
+    oclMolecule.swapAtoms(atom1, atom2);
+  }
+
+  public void swapBonds(int bond1, int bond2) {
+    oclMolecule.swapBonds(bond1, bond2);
   }
 
   public void deleteAtom(int atom) {
@@ -627,7 +845,11 @@ public class JSMolecule {
   }
 
   public void deleteMolecule() {
-    oclMolecule.deleteMolecule();
+    oclMolecule.clear();
+  }
+
+  public void clear() {
+    oclMolecule.clear();
   }
 
   public void removeAtomSelection() {
@@ -722,8 +944,16 @@ public class JSMolecule {
     return oclMolecule.getAtomParity(atom);
   }
 
-  public int getAtomQueryFeatures(int atom) {
-    return oclMolecule.getAtomQueryFeatures(atom);
+  // public int getAtomQueryFeatures(int atom) {
+  // return oclMolecule.getAtomQueryFeatures(atom);
+  // }
+
+  public JavaScriptObject getAtomQueryFeaturesObject(int atom) {
+    return MoleculeQueryFeatures.getAtomQueryFeatures(oclMolecule, atom);
+  }
+
+  public JavaScriptObject getBondQueryFeaturesObject(int atom) {
+    return MoleculeQueryFeatures.getBondQueryFeatures(oclMolecule, atom);
   }
 
   public int getAtomRadical(int atom) {
@@ -870,6 +1100,10 @@ public class JSMolecule {
     return oclMolecule.isFragment();
   }
 
+  public boolean is3D() {
+    return oclMolecule.is3D();
+  }
+
   public boolean isNaturalAbundance(int atom) {
     return oclMolecule.isNaturalAbundance(atom);
   }
@@ -958,7 +1192,7 @@ public class JSMolecule {
     oclMolecule.setAtomParity(atom, parity, isPseudo);
   }
 
-  public void setAtomQueryFeature(int atom, int feature, boolean value) {
+  public void setAtomQueryFeature(int atom, long feature, boolean value) {
     oclMolecule.setAtomQueryFeature(atom, feature, value);
   }
 
@@ -1118,15 +1352,16 @@ public class JSMolecule {
     return oclMolecule.isOrganicAtom(atom);
   }
 
-  public void copyMoleculeByAtoms(JSMolecule destMol, boolean[] includeAtom, boolean recognizeDelocalizedBonds,
-      int[] atomMap) {
-    oclMolecule.copyMoleculeByAtoms(destMol.getStereoMolecule(), includeAtom, recognizeDelocalizedBonds, atomMap);
+  public void copyMoleculeByAtoms(JSMolecule destMol, boolean[] includeAtom,
+      boolean recognizeDelocalizedBonds, int[] atomMap) {
+    oclMolecule.copyMoleculeByAtoms(destMol.getStereoMolecule(), includeAtom,
+        recognizeDelocalizedBonds, atomMap);
   }
 
-  public int[] copyMoleculeByBonds(JSMolecule destMol, boolean[] includeBond, boolean recognizeDelocalizedBonds,
-      int[] atomMap) {
-    return oclMolecule.copyMoleculeByBonds(destMol.getStereoMolecule(), includeBond, recognizeDelocalizedBonds,
-        atomMap);
+  public int[] copyMoleculeByBonds(JSMolecule destMol, boolean[] includeBond,
+      boolean recognizeDelocalizedBonds, int[] atomMap) {
+    return oclMolecule.copyMoleculeByBonds(destMol.getStereoMolecule(), includeBond,
+        recognizeDelocalizedBonds, atomMap);
   }
 
   public int getAllConnAtoms(int atom) {
@@ -1193,6 +1428,10 @@ public class JSMolecule {
     return oclMolecule.getNonHydrogenNeighbourCount(atom);
   }
 
+  public int getExcludedNeighbourCount(int atom) {
+    return oclMolecule.getExcludedNeighbourCount(atom);
+  }
+
   public double getAverageBondLength(boolean nonHydrogenBondsOnly) {
     return oclMolecule.getAverageBondLength(nonHydrogenBondsOnly);
   }
@@ -1241,7 +1480,8 @@ public class JSMolecule {
     return oclMolecule.getFragmentAtoms(rootAtom, considerMetalBonds);
   }
 
-  public int getFragmentNumbers(int[] fragmentNo, boolean markedAtomsOnly, boolean considerMetalBonds) {
+  public int getFragmentNumbers(int[] fragmentNo, boolean markedAtomsOnly,
+      boolean considerMetalBonds) {
     return oclMolecule.getFragmentNumbers(fragmentNo, markedAtomsOnly, considerMetalBonds);
   }
 
@@ -1249,13 +1489,15 @@ public class JSMolecule {
     return oclMolecule.stripSmallFragments(considerMetalBonds);
   }
 
-  public void findRingSystem(int startAtom, boolean aromaticOnly, boolean[] isMemberAtom, boolean[] isMemberBond) {
+  public void findRingSystem(int startAtom, boolean aromaticOnly, boolean[] isMemberAtom,
+      boolean[] isMemberBond) {
     oclMolecule.findRingSystem(startAtom, aromaticOnly, isMemberAtom, isMemberBond);
   }
 
-  public int getSubstituent(int coreAtom, int firstAtom, boolean[] isMemberAtom, JSMolecule substituent,
-      int[] atomMap) {
-    return oclMolecule.getSubstituent(coreAtom, firstAtom, isMemberAtom, substituent.getStereoMolecule(), atomMap);
+  public int getSubstituent(int coreAtom, int firstAtom, boolean[] isMemberAtom,
+      JSMolecule substituent, int[] atomMap) {
+    return oclMolecule.getSubstituent(coreAtom, firstAtom, isMemberAtom,
+        substituent.getStereoMolecule(), atomMap);
   }
 
   public int getSubstituentSize(int coreAtom, int firstAtom) {
@@ -1366,7 +1608,8 @@ public class JSMolecule {
     oclMolecule.setStereoBondFromAtomParity(atom);
   }
 
-  public int getFisherProjectionParity(int atom, int[] sortedConnMap, double[] angle, int[] direction) {
+  public int getFisherProjectionParity(int atom, int[] sortedConnMap, double[] angle,
+      int[] direction) {
     return oclMolecule.getFisherProjectionParity(atom, sortedConnMap, angle, direction);
   }
 
@@ -1376,6 +1619,10 @@ public class JSMolecule {
 
   public int findAlleneCenterAtom(int atom) {
     return oclMolecule.findAlleneCenterAtom(atom);
+  }
+
+  public int findAlleneEndAtom(int atom1, int atom2) {
+    return oclMolecule.findAlleneEndAtom(atom1, atom2);
   }
 
   public int findBINAPChiralityBond(int atom) {
@@ -1447,7 +1694,7 @@ public class JSMolecule {
   }
 
   public void removeExplicitHydrogens(boolean is3D) {
-    oclMolecule.removeExplicitHydrogens(is3D);
+    oclMolecule.removeExplicitHydrogens(true, is3D);
   }
 
   public JSMolecule[] getFragments() {
@@ -1477,11 +1724,19 @@ public class JSMolecule {
   }
 
   public String getIDCode() {
-    return oclMolecule.getIDCode();
+    String idCode = oclMolecule.getIDCode();
+    if (idCode == null) {
+      idCode = new Canonizer(oclMolecule).getIDCode();
+    }
+    return idCode;
   }
 
   public String getIDCoordinates() {
-    return oclMolecule.getIDCoordinates();
+    String idCoordinates = oclMolecule.getIDCoordinates();
+    if (idCoordinates == null) {
+      idCoordinates = new Canonizer(oclMolecule).getEncodedCoordinates();
+    }
+    return idCoordinates;
   }
 
   public int getStereoCenterCount() {
@@ -1495,4 +1750,4 @@ public class JSMolecule {
   public void setAssignParitiesToNitrogen(boolean b) {
     oclMolecule.setAssignParitiesToNitrogen(b);
   }
-}
+};

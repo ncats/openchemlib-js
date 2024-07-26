@@ -1,7 +1,7 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const folder = 'main/resources/resources/forcefield/mmff94';
 const files = [
@@ -34,11 +34,11 @@ const end = `
 }
 `;
 
-function generateCsvData({ config }) {
+function generateCsvData() {
   const csvData = [start];
   for (const file of files) {
     const contents = fs.readFileSync(
-      path.join(config.openchemlib, folder, `${file}.csv`),
+      path.join(__dirname, '../../openchemlib/src', folder, `${file}.csv`),
       'utf8',
     );
     csvData.push(

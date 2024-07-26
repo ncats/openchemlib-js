@@ -1,8 +1,41 @@
+/*
+ * Copyright (c) 1997 - 2016
+ * Actelion Pharmaceuticals Ltd.
+ * Gewerbestrasse 16
+ * CH-4123 Allschwil, Switzerland
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. Neither the name of the the copyright holder nor the
+ *    names of its contributors may be used to endorse or promote products
+ *    derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @author Thomas Sander
+ */
+
 package com.actelion.research.chem.conf;
 
 import com.actelion.research.chem.Molecule;
 import com.actelion.research.chem.StereoMolecule;
-import com.sun.javafx.collections.ListListenerHelper;
 
 public class TorsionDescriptorHelper {
 	private static final int SYMMETRY_360 = 0;  // 0 -> 359 degrees
@@ -63,7 +96,7 @@ public class TorsionDescriptorHelper {
 
 	/**
 	 * Creates a TorsionDescriptor from the coordinates of the passed conformer assuming that its
-	 * underlying molecule is the same that waas passed to this TorsionDescriptorHelper's constructor.
+	 * underlying molecule is the same that was passed to this TorsionDescriptorHelper's constructor.
 	 * This TorsionDescriptorHelper uses the default method to detect rotatable bonds.
 	 * The torsion descriptor is not canonical, unless the passed molecule is canonical.
 	 * Rotatable bonds need to carry at least one external non-hydrogen neighbor on each side.
@@ -115,14 +148,16 @@ public class TorsionDescriptorHelper {
 	private static boolean qualifiesAsDescriptorBond(StereoMolecule mol, int bond) {
 		if (mol.getBondOrder(bond) != 1
 		 || mol.isAromaticBond(bond)
-		 || mol.getBondRingSize(bond) == 3
-		 || mol.isMarkedAtom(mol.getBondAtom(0, bond))
-		 || mol.isMarkedAtom(mol.getBondAtom(1, bond)))
+		 || mol.getBondRingSize(bond) == 3)
 			return false;
 
 		int[] bondAtom = new int[2];
-		for (int i=0; i<2; i++)
+		for (int i=0; i<2; i++) {
 			bondAtom[i] = mol.getBondAtom(i, bond);
+			if (mol.isMarkedAtom(bondAtom[i])
+			 || mol.getNonHydrogenNeighbourCount(bondAtom[i]) <= 1)
+				return false;
+			}
 
 		if (isLinearAtom(mol, bondAtom[0])
 		 || isLinearAtom(mol, bondAtom[1])) {
@@ -135,7 +170,7 @@ public class TorsionDescriptorHelper {
 					chainEndAtom[i] = new int[2];
 					chainEndAtom[i][0] = bondAtom[1-i];
 					chainEndAtom[i][1] = bondAtom[i];
-					if (!getFirstNonSPAtom(mol, chainEndAtom[i], maxBond))
+					if (!getFirstNonSPAtom(mol, bondAtom[1-i], chainEndAtom[i], maxBond))
 						return false;
 					}
 				}
@@ -183,12 +218,15 @@ public class TorsionDescriptorHelper {
 	 * @param mol
 	 * @param atom contains two connected atoms, of which atom[1] is sp-hybridized
 	 * @param maxBond null or contains the highest non-marked rotatable bond in the chain
-	 * @return false if the end of the chain is a sp-hybridized atom
+	 * @return false if the end of the chain is a sp-hybridized atom or in case of a cyclic chain
 	 */
-	private static boolean getFirstNonSPAtom(StereoMolecule mol, int[] atom, int[] maxBond) {
+	private static boolean getFirstNonSPAtom(StereoMolecule mol, int startAtom, int[] atom, int[] maxBond) {
 		for (int i=0; i<2; i++) {
 			int nextAtom = mol.getConnAtom(atom[1], i);
 			if (nextAtom != atom[0]) {
+				if (nextAtom == startAtom)  // we found a cycle
+					return false;
+
 				int nextBond = mol.getConnBond(atom[1], i);
 
 				atom[0] = atom[1];
@@ -203,7 +241,7 @@ public class TorsionDescriptorHelper {
 				if (!isLinearAtom(mol, nextAtom))
 					return true;
 
-				return getFirstNonSPAtom(mol, atom, maxBond);
+				return getFirstNonSPAtom(mol, startAtom, atom, maxBond);
 				}
 			}
 		return false;	// should never happen
@@ -221,7 +259,7 @@ public class TorsionDescriptorHelper {
 				atom[1] = mMol.getBondAtom(j, mRotatableBond[i]);
 
 				if (isLinearAtom(mMol, atom[1]))
-					getFirstNonSPAtom(mMol, atom, null);
+					getFirstNonSPAtom(mMol, atom[0], atom, null);
 
 				mAtomSequence[i][1+j] = atom[1];
 				mRearAtom[i][j] = atom[0];

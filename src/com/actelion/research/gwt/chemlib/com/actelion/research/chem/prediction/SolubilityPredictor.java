@@ -34,12 +34,11 @@
 package com.actelion.research.chem.prediction;
 
 import com.actelion.research.chem.AtomTypeCalculator;
+import com.actelion.research.chem.Molecule;
 import com.actelion.research.chem.StereoMolecule;
 
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
-import java.util.Arrays;
-import java.util.TreeMap;
 
 
 public class SolubilityPredictor {
@@ -156,14 +155,25 @@ public class SolubilityPredictor {
 		}
 
 
+	/**
+	 * Before calculating any kind of property, make sure that the molecule's structure is standardized.
+	 * Typically, molecules created by an IDCodeParser are standardized. Molecules generated from a
+	 * SmilesParser or MolfileParser, or just drawn within an editor, should be standardized using the
+	 * MoleculeStandardizer.
+	 * This method may normalize ambiguous bonds of the molecule.
+	 * @param mol
+	 * @return aquous solubility value estimated from atom type specific increments
+	 */
 	public float assessSolubility(StereoMolecule mol) {
 		float logS = -0.530f;
+
+		mol.normalizeAmbiguousBonds();
+		mol.ensureHelperArrays(Molecule.cHelperRings);
 
 		for (int atom=0; atom<mol.getAtoms(); atom++) {
 			long type = -1;
 			try {
-				type = AtomTypeCalculator.getAtomType(mol, atom,
-											 AtomTypeCalculator.cPropertiesForSolubility);
+				type = AtomTypeCalculator.getAtomType(mol, atom, AtomTypeCalculator.cPropertiesForSolubility);
 				}
 			catch (Exception e) {}
 
@@ -193,11 +203,13 @@ public class SolubilityPredictor {
 		int count[] = new int[cIncrement.length];
 
 		if (mol != null) {
+			mol.normalizeAmbiguousBonds();
+			mol.ensureHelperArrays(Molecule.cHelperRings);
+
 			for (int atom=0; atom<mol.getAtoms(); atom++) {
 				long type = -1;
 				try {
-					type = AtomTypeCalculator.getAtomType(mol, atom,
-												 AtomTypeCalculator.cPropertiesForSolubility);
+					type = AtomTypeCalculator.getAtomType(mol, atom, AtomTypeCalculator.cPropertiesForSolubility);
 					}
 				catch (Exception e) {}
 
